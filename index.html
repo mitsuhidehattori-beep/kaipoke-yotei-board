@@ -99,6 +99,24 @@ h3{margin:4px 0 10px;font-size:15px}
 .ovl summary{cursor:pointer;font-weight:700;color:var(--red)}
 
 /* ===== theme ===== */
+.sales h3,.card h3{margin:0}
+.srow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:6px}
+.kpi{background:#f7f9fb;border:1px solid #e6eaef;border-radius:12px;padding:10px 12px}
+.kpi.big{grid-column:span 2;background:#e7f3f2;border-color:#bfe0dc}
+.kl{font-size:12px;color:var(--sub)}.kv{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:2px}
+.kpi.big .kv{font-size:30px;color:var(--head)}.ks{font-size:11.5px;color:var(--sub);margin-top:2px}
+.list.num td,.list.num th{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.list.num td.l,.list.num th.l{text-align:left}
+.list tr.cur td{background:#fff8e6}.list tr.tot td{border-top:2px solid var(--head);font-weight:700}
+.ulist th.k{background:var(--kaigo-bg);color:#7a3608}.ulist th.n{background:var(--kango-bg);color:#173b80}
+.ulist td.k,.ulist td.n{color:#475569;width:34px}
+.today{font-size:13px}.today b{font-size:15px}
+.sets{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:12px 0}
+.sets label{display:flex;flex-direction:column;font-size:12px;color:var(--sub);gap:4px}
+.sets input,.sets select{font-size:14px;padding:6px 8px;border:1px solid #d5dce4;border-radius:8px}
+.need{background:#fff4e5;color:#b54708;border-radius:999px;padding:2px 10px;font-size:12px}
+
 .files{display:block;margin-top:10px}
 .files summary{cursor:pointer;font-weight:700;font-size:13px;color:var(--sub);padding:4px 2px}
 .files summary .need{margin-left:8px;background:#fff4e5;color:#b54708;border-radius:999px;padding:2px 10px;font-size:12px}
@@ -418,7 +436,112 @@ main{padding:18px 26px 40px;max-width:1500px}
     return { base, rows, columns, pages };
   }
 
-  return { parseCsv, normName, toMin, readRecords, buildModel, findOverlaps, guessFacility, assignLanes, inferMonths, shortService, careSheet, UNKNOWN, UNSET };
+  // ===== 売上 =====
+  const UNITS = { '01': 163, '01夜': 204, '01深': 245, '1': 244, '2': 387, '生活援助': 179 };
+  const KAIGO_CATS = ['01', '01夜', '01深', '1', '2', '生活援助'];
+  const KANGO_CATS = ['iryo', 'I1', 'I2', 'I5'];
+  const z2h = s => String(s || '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+
+  function kaigoCategory(service) {
+    const s = z2h(service);
+    if (/身体介護01/.test(s)) return '01' + (/・夜/.test(s) ? '夜' : /・深/.test(s) ? '深' : '');
+    if (/身体介護1/.test(s)) return '1';
+    if (/身体介護2/.test(s)) return '2';
+    if (/生活援助/.test(s)) return '生活援助';
+    return null;
+  }
+  function kangoCategory(v) {
+    const s = z2h(v.service);
+    if (/医療/.test(v.type) || /療養費/.test(s)) return 'iryo';
+    const hit = /訪看Ⅰ\s*([125])/.exec(s);
+    return hit ? 'I' + hit[1] : null;
+  }
+
+  const KANGO_OKAZAKI = { iryo: 4585, I1: 3206, I2: 4809, I5: 3002 };
+  const KANGO_TOYOTA = { iryo: 5900, I1: 3479, I2: 5219, I5: 3258 };
+  const KANGO_KAKAMI = { iryo: 5529, I1: 3272, I2: 4908, I5: 3063 };
+  const KANGO_NAGARA = { iryo: 5137, I1: 2885, I2: 4328, I5: 5403 };
+  // [施設名に含まれる語, 地域単価, 看護の1回の金額, 看護の金額を各シートで確認済みか]
+  const FACILITY_DEFAULTS = [
+    ['上挙母', 11.05, KANGO_TOYOTA, true], ['東館', 11.05, Object.assign({}, KANGO_TOYOTA, { iryo: 5954 }), true], ['西館', 11.05, Object.assign({}, KANGO_TOYOTA, { iryo: 5954 })],
+    ['大垣昼飯', 10.21], ['昼飯', 10.21], ['大垣', 10.21],
+    ['蘇原', 10.21, KANGO_NAGARA], ['那加桐野', 10.21, KANGO_NAGARA], ['長良東', 10.42, KANGO_NAGARA, true], ['日野東', 10.42, KANGO_KAKAMI, true],
+    ['別館', 10.42, { iryo: 4818, I1: 3206, I2: 4809, I5: 3002 }, true],
+    ['大和', 10.42, { iryo: 5918, I1: 3206, I2: 4809, I5: 3002 }, true],
+    ['末広', 10.42, { iryo: 6027, I1: 3272, I2: 4908, I5: 3063 }, true],
+    ['矢作', 10.42, { iryo: 6016, I1: 3272, I2: 4908, I5: 3063 }, true],
+    ['宮地', 10.42, KANGO_OKAZAKI, true],
+  ];
+  function defaultSettings(facility) {
+    const f = String(facility || '');
+    const hit = FACILITY_DEFAULTS.find(([k]) => f.includes(k));
+    return {
+      area: hit ? hit[1] : 10.42, gensan: 0.12, shogu: 0.249,
+      kango: Object.assign({}, (hit && hit[2]) || KANGO_OKAZAKI),
+      kangoChecked: !!(hit && hit[3]),
+    };
+  }
+  function kaigoAmount(counts, s, gensan, shokai) {
+    let u = 0;
+    for (const c of KAIGO_CATS) u += (counts[c] || 0) * UNITS[c];
+    return u * (1 - gensan) * s.area * (1 + s.shogu) + (shokai || 0) * 200 * s.area * (1 + s.shogu);
+  }
+
+  // opts: tokushiji:Set(userKey), shokai:Map(userKey→回数), gensan:Map(userKey→率), upToDay:number
+  function salesSummary(model, facility, s, opts) {
+    opts = opts || {};
+    const tok = opts.tokushiji || new Set(), sho = opts.shokai || new Map(), gen = opts.gensan || new Map();
+    const users = new Map(), days = new Map();
+    const dayRow = d => { if (!days.has(d)) days.set(d, { day: d, kaigo: 0, kango: 0, tokushiji: 0, shogai: 0, visits: 0 }); return days.get(d); };
+    for (const v of model.visits) {
+      if (v.facility !== facility) continue;
+      if (opts.upToDay && v.day > opts.upToDay) continue;
+      if (!users.has(v.userKey)) users.set(v.userKey, {
+        userKey: v.userKey, user: v.user, kaigo: { counts: {}, amount: 0 }, kango: { counts: {}, amount: 0 },
+        tokushiji: 0, shogai: 0, visits: 0, other: 0, isTokushiji: tok.has(v.userKey),
+      });
+      const u = users.get(v.userKey), d = dayRow(v.day);
+      u.visits++; d.visits++;
+      const g = gen.has(v.userKey) ? gen.get(v.userKey) : s.gensan;
+      if (v.kind === 'kaigo' && v.type === '障害') { u.shogai++; d.shogai++; continue; }
+      if (v.kind === 'kaigo') {
+        const c = kaigoCategory(v.service);
+        if (!c) { u.other++; continue; }
+        u.kaigo.counts[c] = (u.kaigo.counts[c] || 0) + 1;
+        const a = kaigoAmount({ [c]: 1 }, s, g);
+        u.kaigo.amount += a; d.kaigo += a;
+      } else {
+        const c = kangoCategory(v);
+        if (!c) { u.other++; continue; }
+        u.kango.counts[c] = (u.kango.counts[c] || 0) + 1;
+        const a = s.kango[c] || 0;
+        if (c === 'iryo' && tok.has(v.userKey)) { u.tokushiji += a; d.tokushiji += a; }
+        else { u.kango.amount += a; d.kango += a; }
+      }
+    }
+    // 初回加算：その利用者の最初の介護の日に計上
+    for (const u of users.values()) {
+      const n = sho.get(u.userKey) || 0; if (!n) continue;
+      const a = kaigoAmount({}, s, 0, n);
+      u.kaigo.amount += a;
+      const first = model.visits.filter(v => v.facility === facility && v.userKey === u.userKey && v.kind === 'kaigo').map(v => v.day).sort((x, y) => x - y)[0];
+      if (first !== undefined && (!opts.upToDay || first <= opts.upToDay)) dayRow(first).kaigo += a;
+    }
+    const list = [...users.values()].map(u => Object.assign(u, { total: u.kaigo.amount + u.kango.amount + u.tokushiji }))
+      .sort((a, b) => b.total - a.total || a.user.localeCompare(b.user, 'ja'));
+    const dlist = [...days.values()].map(d => Object.assign(d, { total: d.kaigo + d.kango + d.tokushiji })).sort((a, b) => a.day - b.day);
+    const sum = k => list.reduce((x, u) => x + (k === 'kaigo' ? u.kaigo.amount : k === 'kango' ? u.kango.amount : u[k]), 0);
+    const totals = { kaigo: sum('kaigo'), kango: sum('kango'), tokushiji: sum('tokushiji'), visits: sum('visits'), users: list.length, shogaiVisits: sum('shogai') };
+    totals.all = totals.kaigo + totals.kango + totals.tokushiji;
+    const billed = list.filter(u => u.total > 0).length;
+    totals.perUser = billed ? totals.all / billed : 0;
+    const paidVisits = totals.visits - totals.shogaiVisits - sum('other');
+    totals.perVisit = paidVisits ? totals.all / paidVisits : 0;
+    return { users: list, days: dlist, totals };
+  }
+
+  return { parseCsv, normName, toMin, readRecords, buildModel, findOverlaps, guessFacility, assignLanes, inferMonths, shortService, careSheet,
+    kaigoCategory, kangoCategory, defaultSettings, kaigoAmount, salesSummary, KAIGO_CATS, KANGO_CATS, UNITS, UNKNOWN, UNSET };
 });
 
 </script>
@@ -538,7 +661,7 @@ function renderBoard(){
         ${dayPairs.length ? `<span class="badge red">⚠ かぶり ${dayPairs.length}件</span>` : `<span class="badge ok">✓ かぶりなし</span>`}
       </div>
       <div class="row2 noprint">
-        <span class="seg"><button data-view="board" class="${state.view==='board'?'on':''}">📊 利用者ごと</button><button data-view="care" class="${state.view==='care'?'on':''}">📋 ケア割表</button></span>
+        <span class="seg"><button data-view="board" class="${state.view==='board'?'on':''}">📊 利用者ごと</button><button data-view="care" class="${state.view==='care'?'on':''}">📋 ケア割表</button><button data-view="sales" class="${state.view==='sales'?'on':''}">💴 売上</button></span>
         <select id="staffsel"><option value="">👤 職員で絞る（全員）</option>${staffHere.map(s=>`<option value="${esc(s)}" ${s===state.staff?'selected':''}>${esc(s)}</option>`).join('')}</select>
         <span class="legend"><span><i style="background:var(--kango)"></i>看護</span><span><i style="background:var(--kaigo)"></i>介護</span><span><i style="background:var(--shogai)"></i>障害</span><span><i style="background:var(--red)"></i>かぶり</span></span>
         <span class="sp"></span>
@@ -555,6 +678,10 @@ function renderBoard(){
   if (kaigoInFac && !kaigoToday){
     const lastK = Math.max(...facVisits.filter(v => v.kind === 'kaigo').map(v => v.day));
     html += `<div class="card warn">⚠ この日の<b>介護の予定</b>はカイポケにまだ入っていません（介護は${lastK}日まで）。看護の予定だけを表示しています。</div>`;
+  }
+  if (state.view === 'sales'){
+    html += salesView();
+    el.innerHTML = html; return;
   }
   if (state.view === 'care'){
     html += careSheets();
@@ -665,6 +792,102 @@ $('board').addEventListener('click', e => {
 $('board').addEventListener('change', e => {
   if (e.target.id === 'daysel'){ state.day = +e.target.value; renderBoard(); }
   if (e.target.id === 'staffsel'){ state.staff = e.target.value; renderBoard(); }
+});
+
+// ===== 売上 =====
+const LS = 'kyb-sales-v1';
+let store = {};
+try { store = JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch(e) { store = {}; }
+const saveStore = () => { try { localStorage.setItem(LS, JSON.stringify(store)); } catch(e) {} };
+function facStore(f){
+  if (!store[f]) store[f] = { settings: C.defaultSettings(f), tok: [], sho: {}, gen: {} };
+  return store[f];
+}
+const yen = n => '¥' + Math.round(n).toLocaleString('ja-JP');
+const num = n => Math.round(n).toLocaleString('ja-JP');
+const GEN_LABEL = { '0.1':'10%減算', '0.12':'12%減算', '0':'減算なし' };
+state.salesRange = state.salesRange || 'today';
+
+function salesView(){
+  const m = state.model, f = state.fac, fs = facStore(f), st = fs.settings;
+  const now = new Date(), cur = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  const upTo = state.salesRange === 'today' ? (m.month === cur ? now.getDate() : state.day) : 0;
+  const opts = { tokushiji: new Set(fs.tok), shokai: new Map(Object.entries(fs.sho).map(([k,v])=>[k,+v])), gensan: new Map(Object.entries(fs.gen).map(([k,v])=>[k,+v])) };
+  const r = C.salesSummary(m, f, st, Object.assign({ upToDay: upTo || undefined }, opts));
+  const full = C.salesSummary(m, f, st, opts);
+  const t = r.totals;
+  const kaigoLast = Math.max(0, ...m.visits.filter(v => v.facility === f && v.kind === 'kaigo').map(v => v.day));
+  const card = (lab, val, sub, cls) => `<div class="kpi ${cls||''}"><div class="kl">${lab}</div><div class="kv">${val}</div>${sub?`<div class="ks">${sub}</div>`:''}</div>`;
+  let h = `<div class="card sales">
+    <div class="srow"><h3>💴 ${esc(f)} の売上（${m.month?+m.month.slice(5)+'月':''}）</h3><span class="sp"></span>
+      <span class="seg noprint"><button data-range="today" class="${state.salesRange==='today'?'on':''}">${upTo?upTo+'日まで':'今日まで'}</button><button data-range="month" class="${state.salesRange==='month'?'on':''}">月末まで（予定）</button></span></div>
+    ${kaigoLast && kaigoLast < 28 ? `<div class="warn" style="margin:8px 0;padding:8px 12px">⚠ 介護の予定はカイポケに${kaigoLast}日までしか入っていません。月末までの見込みは少なめに出ます。</div>` : ''}
+    <div class="kpis">
+      ${card('売上合計', yen(t.all), state.salesRange==='today'?`月末見込み ${yen(full.totals.all)}`:'', 'big')}
+      ${card('🟧 介護', yen(t.kaigo))}
+      ${card('🟦 看護', yen(t.kango))}
+      ${card('🟦 特指示', yen(t.tokushiji))}
+      ${card('訪問件数', num(t.visits)+'件', t.shogaiVisits?`うち障害 ${t.shogaiVisits}件（金額なし）`:'')}
+      ${card('利用者', t.users+'人')}
+      ${card('1回あたり', yen(t.perVisit))}
+      ${card('1人あたり', yen(t.perUser))}
+    </div></div>`;
+  // 日別（月報用）
+  const tsv = r.days.map(d => [d.day+'日', Math.round(d.kaigo), Math.round(d.kango), Math.round(d.tokushiji), Math.round(d.total)].join('\t')).join('\n');
+  const td = r.days.find(d => d.day === state.day);
+  h += `<div class="card"><div class="srow"><h3>📅 日別（月報に写す数字）</h3><span class="sp"></span>
+      ${td?`<span class="today">${state.day}日：介護 <b>${num(td.kaigo)}</b>　看護 <b>${num(td.kango)}</b>　特指示 <b>${num(td.tokushiji)}</b></span>
+      <button class="noprint" data-copy="${esc([Math.round(td.kaigo),Math.round(td.kango),Math.round(td.tokushiji)].join('\t'))}">📋 ${state.day}日分をコピー</button>`:''}
+      <button class="noprint" data-copy="${esc(tsv)}">📋 全日をコピー</button></div>
+    <div class="scroll"><table class="list num"><tr><th>日</th><th>🟧 介護</th><th>🟦 看護</th><th>🟦 特指示</th><th>合計</th><th>件数</th></tr>
+    ${r.days.map(d=>`<tr class="${d.day===state.day?'cur':''}"><td>${d.day}日</td><td>${num(d.kaigo)}</td><td>${num(d.kango)}</td><td>${num(d.tokushiji)}</td><td><b>${num(d.total)}</b></td><td>${d.visits}</td></tr>`).join('')}
+    <tr class="tot"><td>計</td><td>${num(t.kaigo)}</td><td>${num(t.kango)}</td><td>${num(t.tokushiji)}</td><td><b>${num(t.all)}</b></td><td>${t.visits}</td></tr></table></div>
+    <div class="mnote" style="margin-top:6px">コピーした数字は、月報の「介護・看護・特指示」の欄にそのまま貼り付けられます（タブ区切り）。</div></div>`;
+  // 利用者別
+  const kc = C.KAIGO_CATS, nc = [['iryo','医療'],['I1','Ⅰ1'],['I2','Ⅰ2'],['I5','Ⅰ5']];
+  h += `<div class="card"><div class="srow"><h3>👤 利用者別</h3><span class="sp"></span><span class="mnote">特指示・初回・減算は利用者ごとに変えられます（このパソコンに保存）</span></div>
+    <div class="scroll"><table class="list num ulist"><tr><th class="l">利用者</th>${kc.map(c=>`<th class="k">${c}</th>`).join('')}${nc.map(([,l])=>`<th class="n">${l}</th>`).join('')}
+      <th>介護</th><th>看護</th><th>合計</th><th class="noprint">特指示</th><th class="noprint">初回</th><th class="noprint">減算</th></tr>
+    ${r.users.map(u=>{ const g = fs.gen[u.userKey];
+      return `<tr><td class="l">${esc(u.user.replace(/[\s　]+/g,''))}${u.shogai?` <span class="pill shogai">障害${u.shogai}</span>`:''}</td>
+      ${kc.map(c=>`<td class="k">${u.kaigo.counts[c]||''}</td>`).join('')}${nc.map(([c])=>`<td class="n">${u.kango.counts[c]||''}</td>`).join('')}
+      <td>${u.kaigo.amount?num(u.kaigo.amount):''}</td><td>${(u.kango.amount+u.tokushiji)?num(u.kango.amount+u.tokushiji):''}</td><td><b>${num(u.total)}</b></td>
+      <td class="noprint"><input type="checkbox" data-tok="${esc(u.userKey)}" ${fs.tok.includes(u.userKey)?'checked':''}></td>
+      <td class="noprint"><input type="number" min="0" max="9" data-sho="${esc(u.userKey)}" value="${fs.sho[u.userKey]||''}" style="width:44px"></td>
+      <td class="noprint"><select data-gen="${esc(u.userKey)}"><option value="">施設の設定</option>${['0.1','0.12','0'].map(v=>`<option value="${v}" ${g!==undefined&&String(g)===v?'selected':''}>${GEN_LABEL[v]}</option>`).join('')}</select></td></tr>`; }).join('')}
+    </table></div></div>`;
+  // 設定
+  h += `<details class="card noprint" ${st.kangoChecked?'':'open'}><summary><b>⚙ ${esc(f)} の金額の設定</b>（売上管理シートと同じ値を入れています）${st.kangoChecked?'':'<span class="need" style="margin-left:8px">看護の金額は要確認</span>'}</summary>
+    <div class="sets">
+      <label>地域単価（円）<input type="number" step="0.01" data-set="area" value="${st.area}"></label>
+      <label>介護の減算<select data-set="gensan">${['0.1','0.12','0'].map(v=>`<option value="${v}" ${String(st.gensan)===v?'selected':''}>${GEN_LABEL[v]}</option>`).join('')}</select></label>
+      <label>処遇改善の率<input type="number" step="0.001" data-set="shogu" value="${st.shogu}"></label>
+      <label>看護 医療1回（円）<input type="number" data-set="kango.iryo" value="${st.kango.iryo}"></label>
+      <label>看護 訪看Ⅰ1（円）<input type="number" data-set="kango.I1" value="${st.kango.I1}"></label>
+      <label>看護 訪看Ⅰ2（円）<input type="number" data-set="kango.I2" value="${st.kango.I2}"></label>
+      <label>看護 訪看Ⅰ5（円）<input type="number" data-set="kango.I5" value="${st.kango.I5}"></label>
+      <button data-reset="1">初期値に戻す</button>
+    </div>
+    <div class="mnote">介護の計算：単位数 ×（1−減算）× 地域単価 ×（1＋処遇改善）。初回は200単位（減算なし）。障害は件数のみ。</div></details>`;
+  return h;
+}
+
+$('board').addEventListener('click', e => {
+  const rb = e.target.closest('[data-range]'); if (rb){ state.salesRange = rb.dataset.range; renderBoard(); return; }
+  const cb = e.target.closest('[data-copy]');
+  if (cb){ const txt = cb.dataset.copy; const done = () => { const o = cb.textContent; cb.textContent = '✓ コピーしました'; setTimeout(()=>cb.textContent=o, 1500); };
+    try { navigator.clipboard.writeText(txt).then(done, () => fallbackCopy(txt, done)); } catch(err){ fallbackCopy(txt, done); } return; }
+  if (e.target.closest('[data-reset]')){ store[state.fac].settings = C.defaultSettings(state.fac); saveStore(); renderBoard(); }
+});
+function fallbackCopy(txt, done){ const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch(e){} ta.remove(); }
+$('board').addEventListener('change', e => {
+  const t = e.target, fs = state.fac && store[state.fac]; if (!fs) return;
+  if (t.dataset.tok !== undefined){ const k = t.dataset.tok; fs.tok = fs.tok.filter(x=>x!==k); if (t.checked) fs.tok.push(k); }
+  else if (t.dataset.sho !== undefined){ const v = parseInt(t.value,10); if (v>0) fs.sho[t.dataset.sho] = v; else delete fs.sho[t.dataset.sho]; }
+  else if (t.dataset.gen !== undefined){ if (t.value === '') delete fs.gen[t.dataset.gen]; else fs.gen[t.dataset.gen] = +t.value; }
+  else if (t.dataset.set){ const v = parseFloat(t.value); if (isNaN(v)) return; const [a,b] = t.dataset.set.split('.'); if (b) fs.settings[a][b] = v; else fs.settings[a] = v; if (a==='kango') fs.settings.kangoChecked = true; }
+  else return;
+  saveStore(); renderBoard();
 });
 renderBoard();
 })();
