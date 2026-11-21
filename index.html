@@ -104,7 +104,7 @@ h3{margin:4px 0 10px;font-size:15px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:6px}
 .kpi{background:#f7f9fb;border:1px solid #e6eaef;border-radius:12px;padding:10px 12px}
 .kpi.big{grid-column:span 2;background:#e7f3f2;border-color:#bfe0dc}
-.kl{font-size:12px;color:var(--sub)}.kv{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:2px}
+.kl{font-size:12px;color:var(--sub)}.ks b{color:var(--ink)}.kv{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:2px}
 .kpi.big .kv{font-size:30px;color:var(--head)}.ks{font-size:11.5px;color:var(--sub);margin-top:2px}
 .list.num td,.list.num th{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .list.num td.l,.list.num th.l{text-align:left}
@@ -492,7 +492,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     opts = opts || {};
     const tok = opts.tokushiji || new Set(), sho = opts.shokai || new Map(), gen = opts.gensan || new Map();
     const users = new Map(), days = new Map();
-    const dayRow = d => { if (!days.has(d)) days.set(d, { day: d, kaigo: 0, kango: 0, tokushiji: 0, shogai: 0, visits: 0 }); return days.get(d); };
+    const dayRow = d => { if (!days.has(d)) days.set(d, { day: d, kaigo: 0, kango: 0, tokushiji: 0, shogai: 0, visits: 0, _kg: new Set(), _kn: new Set() }); return days.get(d); };
     for (const v of model.visits) {
       if (v.facility !== facility) continue;
       if (opts.upToDay && v.day > opts.upToDay) continue;
@@ -504,6 +504,7 @@ main{padding:18px 26px 40px;max-width:1500px}
       u.visits++; d.visits++;
       const g = gen.has(v.userKey) ? gen.get(v.userKey) : s.gensan;
       if (v.kind === 'kaigo' && v.type === '障害') { u.shogai++; d.shogai++; continue; }
+      if (v.kind === 'kaigo') d._kg.add(v.userKey); else d._kn.add(v.userKey);
       if (v.kind === 'kaigo') {
         const c = kaigoCategory(v.service);
         if (!c) { u.other++; continue; }
@@ -529,10 +530,22 @@ main{padding:18px 26px 40px;max-width:1500px}
     }
     const list = [...users.values()].map(u => Object.assign(u, { total: u.kaigo.amount + u.kango.amount + u.tokushiji }))
       .sort((a, b) => b.total - a.total || a.user.localeCompare(b.user, 'ja'));
-    const dlist = [...days.values()].map(d => Object.assign(d, { total: d.kaigo + d.kango + d.tokushiji })).sort((a, b) => a.day - b.day);
+    const dlist = [...days.values()].map(d => {
+      const o = Object.assign(d, { total: d.kaigo + d.kango + d.tokushiji, kaigoUsers: d._kg.size, kangoUsers: d._kn.size });
+      delete o._kg; delete o._kn; return o;
+    }).sort((a, b) => a.day - b.day);
     const sum = k => list.reduce((x, u) => x + (k === 'kaigo' ? u.kaigo.amount : k === 'kango' ? u.kango.amount : u[k]), 0);
     const totals = { kaigo: sum('kaigo'), kango: sum('kango'), tokushiji: sum('tokushiji'), visits: sum('visits'), users: list.length, shogaiVisits: sum('shogai') };
     totals.all = totals.kaigo + totals.kango + totals.tokushiji;
+    const has = (u, k) => Object.keys(u[k].counts).length > 0;
+    totals.kaigoUsers = list.filter(u => has(u, 'kaigo')).length;
+    totals.kangoUsers = list.filter(u => has(u, 'kango')).length;
+    totals.kangoIryoUsers = list.filter(u => u.kango.counts.iryo).length;
+    totals.kangoKaigoUsers = list.filter(u => u.kango.counts.I1 || u.kango.counts.I2 || u.kango.counts.I5).length;
+    totals.bothUsers = list.filter(u => has(u, 'kaigo') && has(u, 'kango')).length;
+    totals.shogaiUsers = list.filter(u => u.shogai).length;
+    totals.kaigoPerUser = totals.kaigoUsers ? totals.kaigo / totals.kaigoUsers : 0;
+    totals.kangoPerUser = totals.kangoUsers ? (totals.kango + totals.tokushiji) / totals.kangoUsers : 0;
     const billed = list.filter(u => u.total > 0).length;
     totals.perUser = billed ? totals.all / billed : 0;
     const paidVisits = totals.visits - totals.shogaiVisits - sum('other');
@@ -824,11 +837,11 @@ function salesView(){
     ${kaigoLast && kaigoLast < 28 ? `<div class="warn" style="margin:8px 0;padding:8px 12px">⚠ 介護の予定はカイポケに${kaigoLast}日までしか入っていません。月末までの見込みは少なめに出ます。</div>` : ''}
     <div class="kpis">
       ${card('売上合計', yen(t.all), state.salesRange==='today'?`月末見込み ${yen(full.totals.all)}`:'', 'big')}
-      ${card('🟧 介護', yen(t.kaigo))}
-      ${card('🟦 看護', yen(t.kango))}
-      ${card('🟦 特指示', yen(t.tokushiji))}
+      ${card('🟧 介護', yen(t.kaigo), `利用 <b>${t.kaigoUsers}人</b>・1人 ${yen(t.kaigoPerUser)}`)}
+      ${card('🟦 看護（特指示含む）', yen(t.kango + t.tokushiji), `利用 <b>${t.kangoUsers}人</b>（医療 ${t.kangoIryoUsers}・介護 ${t.kangoKaigoUsers}）・1人 ${yen(t.kangoPerUser)}`)}
+      ${card('🟦 うち特指示', yen(t.tokushiji))}
+      ${card('利用者', t.users+'人', `看護と介護の両方 ${t.bothUsers}人${t.shogaiUsers?`・障害 ${t.shogaiUsers}人`:''}`)}
       ${card('訪問件数', num(t.visits)+'件', t.shogaiVisits?`うち障害 ${t.shogaiVisits}件（金額なし）`:'')}
-      ${card('利用者', t.users+'人')}
       ${card('1回あたり', yen(t.perVisit))}
       ${card('1人あたり', yen(t.perUser))}
     </div></div>`;
@@ -836,12 +849,12 @@ function salesView(){
   const tsv = r.days.map(d => [d.day+'日', Math.round(d.kaigo), Math.round(d.kango), Math.round(d.tokushiji), Math.round(d.total)].join('\t')).join('\n');
   const td = r.days.find(d => d.day === state.day);
   h += `<div class="card"><div class="srow"><h3>📅 日別（月報に写す数字）</h3><span class="sp"></span>
-      ${td?`<span class="today">${state.day}日：介護 <b>${num(td.kaigo)}</b>　看護 <b>${num(td.kango)}</b>　特指示 <b>${num(td.tokushiji)}</b></span>
+      ${td?`<span class="today">${state.day}日：介護 <b>${num(td.kaigo)}</b>（${td.kaigoUsers}人）　看護 <b>${num(td.kango)}</b>（${td.kangoUsers}人）　特指示 <b>${num(td.tokushiji)}</b></span>
       <button class="noprint" data-copy="${esc([Math.round(td.kaigo),Math.round(td.kango),Math.round(td.tokushiji)].join('\t'))}">📋 ${state.day}日分をコピー</button>`:''}
       <button class="noprint" data-copy="${esc(tsv)}">📋 全日をコピー</button></div>
-    <div class="scroll"><table class="list num"><tr><th>日</th><th>🟧 介護</th><th>🟦 看護</th><th>🟦 特指示</th><th>合計</th><th>件数</th></tr>
-    ${r.days.map(d=>`<tr class="${d.day===state.day?'cur':''}"><td>${d.day}日</td><td>${num(d.kaigo)}</td><td>${num(d.kango)}</td><td>${num(d.tokushiji)}</td><td><b>${num(d.total)}</b></td><td>${d.visits}</td></tr>`).join('')}
-    <tr class="tot"><td>計</td><td>${num(t.kaigo)}</td><td>${num(t.kango)}</td><td>${num(t.tokushiji)}</td><td><b>${num(t.all)}</b></td><td>${t.visits}</td></tr></table></div>
+    <div class="scroll"><table class="list num"><tr><th>日</th><th>🟧 介護</th><th>🟦 看護</th><th>🟦 特指示</th><th>合計</th><th>件数</th><th>🟧 介護の人数</th><th>🟦 看護の人数</th></tr>
+    ${r.days.map(d=>`<tr class="${d.day===state.day?'cur':''}"><td>${d.day}日</td><td>${num(d.kaigo)}</td><td>${num(d.kango)}</td><td>${num(d.tokushiji)}</td><td><b>${num(d.total)}</b></td><td>${d.visits}</td><td>${d.kaigoUsers}人</td><td>${d.kangoUsers}人</td></tr>`).join('')}
+    <tr class="tot"><td>計</td><td>${num(t.kaigo)}</td><td>${num(t.kango)}</td><td>${num(t.tokushiji)}</td><td><b>${num(t.all)}</b></td><td>${t.visits}</td><td>${t.kaigoUsers}人</td><td>${t.kangoUsers}人</td></tr></table></div>
     <div class="mnote" style="margin-top:6px">コピーした数字は、月報の「介護・看護・特指示」の欄にそのまま貼り付けられます（タブ区切り）。</div></div>`;
   // 利用者別
   const kc = C.KAIGO_CATS, nc = [['iryo','医療'],['I1','Ⅰ1'],['I2','Ⅰ2'],['I5','Ⅰ5']];
