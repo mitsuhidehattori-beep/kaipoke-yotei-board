@@ -99,6 +99,18 @@ h3{margin:4px 0 10px;font-size:15px}
 .ovl summary{cursor:pointer;font-weight:700;color:var(--red)}
 
 /* ===== theme ===== */
+.tokc{white-space:nowrap}.tokc .auto{background:#efe9fb;color:#5b3fa8;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700;margin-right:6px}.tokc .man{font-size:11px;color:var(--sub)}
+.saved{background:#e7f6ec;color:#15803d;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700}
+.monthsel{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:5px 10px;font-size:12.5px;font-family:inherit}
+.monthsel option{color:#000}
+header .hwrap{display:flex;gap:8px;align-items:center}
+.reg{max-width:520px;margin:30px auto;display:flex;flex-direction:column;gap:12px}
+.reg label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--sub)}
+.reg input{font-size:16px;padding:10px;border:1px solid #d5dce4;border-radius:10px}
+.primary{background:var(--head);color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:700;cursor:pointer}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);background:#12343b;color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:99;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+#toast.show{opacity:1;transform:translate(-50%,0)}#toast.bad{background:#b42318}
+
 .sales h3,.card h3{margin:0}
 .srow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:6px}
@@ -155,7 +167,7 @@ main{padding:18px 26px 40px;max-width:1500px}
 .upload.compact .drop{padding:10px 14px;text-align:left;display:flex;align-items:center;gap:10px}
 .upload.compact .drop .full{display:none}.upload.compact .drop .mini{display:inline;font-weight:700;color:var(--accent)}
 .chip{border-radius:10px;padding:7px 12px;font-size:12.5px;gap:8px}
-.chip.kango{border-left:4px solid var(--kango)}.chip.kaigo{border-left:4px solid var(--kaigo)}
+.chip.shiji{border-left:4px solid #7c5cc4}.chip.kango{border-left:4px solid var(--kango)}.chip.kaigo{border-left:4px solid var(--kaigo)}
 .chip input{border:1px solid var(--line);border-radius:6px;padding:3px 6px}
 .tabs{gap:8px;margin:4px 0 14px}
 .tab{padding:9px 18px;font-size:14px;border-color:#d5dce4;transition:.12s}
@@ -237,11 +249,11 @@ main{padding:18px 26px 40px;max-width:1500px}
 </style>
 </head>
 <body>
-<header><div class="brand"><span class="logo">訪</span><div><h1>訪問予定ボード</h1><p>訪問看護 ＋ 訪問介護 ／ カイポケの予定から自動でつくる</p></div></div><div class="hstat" id="hstat"></div></header>
+<header><div class="brand"><span class="logo">訪</span><div><h1>訪問予定ボード</h1><p>訪問看護 ＋ 訪問介護 ／ カイポケの予定から自動でつくる</p></div></div><div class="hwrap"><div class="hstat" id="hstat"></div></div></header>
 <main>
   <section class="card noprint upload" id="upload">
     <div class="drop" id="drop"><span class="full"><span class="ic">📂</span><span class="big">カイポケの予定CSVをここにドラッグ</span>（またはクリックして選ぶ）<br>
-      <span style="font-size:12px">🟦 看護：各種情報出力 → スケジュール表（予定）　🟧 介護：出力対象選択 → シフト表（事業所ごと）</span></span>
+      <span style="font-size:12px">🟦 看護：各種情報出力 → スケジュール表（予定）　🟧 介護：出力対象選択 → シフト表（事業所ごと）　📋 特指示（あれば）：傷病一覧（前月・当月）</span></span>
       <span class="mini">＋ CSVを追加・入れ替え</span><span class="mini" style="font-weight:400;color:var(--sub);font-size:12px">（ここにドラッグ／クリック）</span></div>
     <input type="file" id="file" accept=".csv" multiple hidden>
     <div class="files" id="files"></div>
@@ -286,6 +298,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     if (!rows.length) throw new Error(fileName + '：中身が空です');
     const h = rows[0].map(x => x.trim());
     const col = n => h.indexOf(n);
+    if (col('指示区分') >= 0 && col('有効期間(開始)') >= 0) return readShiji(rows, col, fileName);
     let kind;
     if (col('職員名１') >= 0 && col('事業所名') >= 0) kind = 'kango';
     else if (col('ヘルパー名') >= 0) kind = 'kaigo';
@@ -307,8 +320,30 @@ main{padding:18px 26px 40px;max-width:1500px}
         service: g('service'), weekday: g('weekday'), start, end: end < start ? end + 1440 : end, office: g('office'),
       });
     }
-    const fm = /(20\d{2})(0[1-9]|1[0-2])/.exec(String(fileName));
-    return { kind, records, month: fm ? fm[1] + '-' + fm[2] : null };
+    return { kind, records, month: fileMonth(fileName) };
+  }
+
+  // 傷病一覧（指示書の有効期間）。傷病名は使わないので持たない
+  const ymd = t => { const m = /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/.exec(String(t || '').trim()); return m ? m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0') : ''; };
+  function fileMonth(fileName) {
+    const f = String(fileName);
+    const w = /令和(\d{1,2})年(\d{1,2})月/.exec(f);
+    if (w) return (2018 + +w[1]) + '-' + w[2].padStart(2, '0');
+    const fm = /(20\d{2})(0[1-9]|1[0-2])/.exec(f);
+    return fm ? fm[1] + '-' + fm[2] : null;
+  }
+  function readShiji(rows, col, fileName) {
+    const ix = { user: col('利用者名'), kubun: col('指示区分'), from: col('有効期間(開始)'), to: col('有効期間(終了)') };
+    const seen = new Set(), records = [];
+    for (let r = 1; r < rows.length; r++) {
+      const v = rows[r], g = k => (v[ix[k]] || '').trim();
+      const user = g('user'), from = ymd(g('from')), to = ymd(g('to'));
+      if (!user || !from || !to) continue;
+      const k = [normName(user), g('kubun'), from, to].join('|');
+      if (seen.has(k)) continue; seen.add(k);
+      records.push({ kind: 'shiji', user, userKey: normName(user), kubun: g('kubun'), from, to });
+    }
+    return { kind: 'shiji', records, month: fileMonth(fileName) };
   }
 
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
@@ -365,7 +400,14 @@ main{padding:18px 26px 40px;max-width:1500px}
       if (f.facility && !userFac.has(r.userKey)) userFac.set(r.userKey, f.facility);
     }
     let id = 0;
-    for (const f of files) for (const r of f.records) {
+    const orders = new Map(), oseen = new Set();
+    for (const f of files) if (f.kind === 'shiji') for (const r of f.records) {
+      const k = [r.userKey, r.kubun, r.from, r.to].join('|');
+      if (oseen.has(k)) continue; oseen.add(k);
+      if (!orders.has(r.userKey)) orders.set(r.userKey, []);
+      orders.get(r.userKey).push(r);
+    }
+    for (const f of files) if (f.kind !== 'shiji') for (const r of f.records) {
       const key = [r.kind, r.day, r.userKey, r.start, r.end, r.staff, r.type].join('|');
       if (seen.has(key)) continue;
       seen.add(key);
@@ -375,6 +417,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     const overlaps = findOverlaps(visits);
     let common = null;
     for (const f of files) {
+      if (f.kind === 'shiji') continue;
       const ms = f.month ? [f.month] : inferMonths(f.records);
       if (!ms) continue;
       common = common === null ? new Set(ms) : new Set(ms.filter(x => common.has(x)));
@@ -385,7 +428,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     const facilities = [...new Set(visits.map(v => v.facility))].sort((a, b) => last(a) - last(b) || a.localeCompare(b, 'ja'));
     const staff = [...new Set(visits.map(v => v.staff).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
     const days = [...new Set(visits.map(v => v.day))].sort((a, b) => a - b);
-    return { facilities, visits, overlaps, staff, days, mixedMonths, month };
+    return { facilities, visits, overlaps, staff, days, mixedMonths, month, orders };
   }
 
   function guessFacility(fileName, candidates) {
@@ -487,6 +530,22 @@ main{padding:18px 26px 40px;max-width:1500px}
     return u * (1 - gensan) * s.area * (1 + s.shogu) + (shokai || 0) * 200 * s.area * (1 + s.shogu);
   }
 
+  // 特別指示の期間に入っている訪問か（傷病一覧を入れたときだけ）
+  const SPECIAL = '特別指示';
+  function inTokushiji(model, userKey, day) {
+    const list = model.orders && model.orders.get(userKey);
+    if (!list || !model.month) return false;
+    const date = model.month + '-' + String(day).padStart(2, '0');
+    return list.some(o => o.kubun === SPECIAL && o.from <= date && date <= o.to);
+  }
+  function tokPeriods(model, userKey) {
+    const list = (model.orders && model.orders.get(userKey)) || [], m = model.month;
+    if (!m) return [];
+    const md = x => +x.slice(5, 7) + '/' + +x.slice(8);
+    const first = m + '-01', last = m + '-31';
+    return list.filter(o => o.kubun === SPECIAL && o.from <= last && o.to >= first).sort((a, b) => a.from < b.from ? -1 : 1).map(o => md(o.from) + '〜' + md(o.to));
+  }
+
   // opts: tokushiji:Set(userKey), shokai:Map(userKey→回数), gensan:Map(userKey→率), upToDay:number
   function salesSummary(model, facility, s, opts) {
     opts = opts || {};
@@ -498,7 +557,7 @@ main{padding:18px 26px 40px;max-width:1500px}
       if (opts.upToDay && v.day > opts.upToDay) continue;
       if (!users.has(v.userKey)) users.set(v.userKey, {
         userKey: v.userKey, user: v.user, kaigo: { counts: {}, amount: 0 }, kango: { counts: {}, amount: 0 },
-        tokushiji: 0, shogai: 0, visits: 0, other: 0, isTokushiji: tok.has(v.userKey),
+        tokushiji: 0, shogai: 0, visits: 0, other: 0, isTokushiji: tok.has(v.userKey), tokAuto: 0, tokPeriods: tokPeriods(model, v.userKey),
       });
       const u = users.get(v.userKey), d = dayRow(v.day);
       u.visits++; d.visits++;
@@ -516,7 +575,9 @@ main{padding:18px 26px 40px;max-width:1500px}
         if (!c) { u.other++; continue; }
         u.kango.counts[c] = (u.kango.counts[c] || 0) + 1;
         const a = s.kango[c] || 0;
-        if (c === 'iryo' && tok.has(v.userKey)) { u.tokushiji += a; d.tokushiji += a; }
+        const auto = c === 'iryo' && inTokushiji(model, v.userKey, v.day);
+        if (auto) u.tokAuto++;
+        if (c === 'iryo' && (auto || tok.has(v.userKey))) { u.tokushiji += a; d.tokushiji += a; }
         else { u.kango.amount += a; d.kango += a; }
       }
     }
@@ -553,7 +614,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     return { users: list, days: dlist, totals };
   }
 
-  return { parseCsv, normName, toMin, readRecords, buildModel, findOverlaps, guessFacility, assignLanes, inferMonths, shortService, careSheet,
+  return { inTokushiji, fileMonth, parseCsv, normName, toMin, readRecords, buildModel, findOverlaps, guessFacility, assignLanes, inferMonths, shortService, careSheet,
     kaigoCategory, kangoCategory, defaultSettings, kaigoAmount, salesSummary, KAIGO_CATS, KANGO_CATS, UNITS, UNKNOWN, UNSET };
 });
 
@@ -562,6 +623,9 @@ main{padding:18px 26px 40px;max-width:1500px}
 (function(){
 'use strict';
 const C = window.Core;
+const GAS = !!(window.google && google.script && google.script.run);
+let DEVICE = '';
+try { DEVICE = localStorage.getItem('kyb-device') || ''; if (!DEVICE){ DEVICE = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); localStorage.setItem('kyb-device', DEVICE); } } catch(e){ DEVICE = 'd' + Math.random().toString(36).slice(2); }
 const FAC_DEFAULT = ['宮地町','矢作末広','矢作町','大和町'];
 const PX_PER_HOUR = 130;
 const state = { filesOpen: false, files: [], model: null, fac: null, day: null, staff: '', view: 'board', kf: 'all' };
@@ -586,8 +650,10 @@ async function addFiles(list){
       const old = state.files.findIndex(f => f.name === file.name);
       const prevFac = old >= 0 ? state.files[old].facility : null;
       if (old >= 0) state.files.splice(old, 1);
-      state.files.push({ name:file.name, size:file.size, kind:r.kind, records:r.records,
-        month: r.month, facility: r.kind === 'kaigo' ? (prevFac || C.guessFacility(file.name, facCandidates())) : null });
+      const fo = { name:file.name, size:file.size, kind:r.kind, records:r.records,
+        month: r.month, facility: r.kind === 'kaigo' ? (prevFac || C.guessFacility(file.name, facCandidates())) : null };
+      state.files.push(fo);
+      if (GAS) await gasPersist(fo);
     }catch(e){ errs.push(e.message || String(e)); }
   }
   $('err').textContent = errs.join(' ／ ');
@@ -612,28 +678,35 @@ function rebuild(){
 function renderFiles(){
   const opts = facCandidates();
   $('upload').classList.toggle('compact', state.files.length > 0);
-  const nk = state.files.filter(f=>f.kind==='kango').length, nc = state.files.length - nk;
+  const nk = state.files.filter(f=>f.kind==='kango').length, ns = state.files.filter(f=>f.kind==='shiji').length, nc = state.files.length - nk - ns;
   const mon = state.model && state.model.month ? +state.model.month.slice(5) + '月分' : '';
-  $('hstat').innerHTML = state.files.length ? `${mon?`<span>📅 ${mon}</span>`:''}<span>🟦 看護 ${nk}ファイル</span><span>🟧 介護 ${nc}ファイル</span>` : '';
+  $('hstat').innerHTML = state.files.length ? `${mon&&!GAS?`<span>📅 ${mon}</span>`:''}<span>🟦 看護 ${nk}ファイル</span><span>🟧 介護 ${nc}ファイル</span>${ns?`<span>📋 指示 ${ns}ファイル</span>`:''}` : '';
   const needOpen = state.files.some(f => f.kind === 'kaigo' && !f.facility);
   if (needOpen) state.filesOpen = true;
   $('files').innerHTML = !state.files.length ? '' : `<details id="fdet" ${state.filesOpen?'open':''}><summary>📄 読み込んだファイル（${state.files.length}）${needOpen?'<span class="need">施設を選んでください</span>':''}</summary><div class="flist">` + state.files.map((f,i) => `
     <div class="chip ${f.kind}">
-      <b>${f.kind==='kango'?'🟦 看護':'🟧 介護'}</b> ${esc(f.name)}（${f.records.length}件）
+      <b>${f.kind==='kango'?'🟦 看護':f.kind==='shiji'?'📋 指示':'🟧 介護'}</b> ${esc(f.name)}（${f.records.length}件）${GAS?(f.saved?`<span class="saved" title="${esc(f.savedBy||'')} ${esc(f.savedAt||'')}">✓ 保存済み</span>`:(f.kind==='kaigo'&&!f.facility?'<span class="need">施設を選ぶと保存</span>':'<span class="need">保存中…</span>')):''}
       ${f.kind==='kaigo' ? `施設：<input class="facsel" data-i="${i}" list="faclist" value="${esc(f.facility||'')}" placeholder="選ぶ／入力" size="9">` : ''}
-      <button class="x" data-del="${i}" title="外す">✕</button>
+      <button class="x" data-del="${i}" title="${GAS&&f.saved?'保存から削除':'外す'}">${GAS&&f.saved&&state.delArm===i?'削除する？':'✕'}</button>
     </div>`).join('') + `</div></details><datalist id="faclist">${opts.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`;
 }
 
 $('files').addEventListener('change', e => {
   const s = e.target.closest('.facsel'); if (!s) return;
-  state.files[+s.dataset.i].facility = s.value.trim() || null;
-  rebuild();
+  const f = state.files[+s.dataset.i];
+  f.facility = s.value.trim() || null;
+  if (GAS) gasPersist(f).then(rebuild); else rebuild();
 });
 $('files').addEventListener('toggle', e => { if (e.target.id === 'fdet') state.filesOpen = e.target.open; }, true);
 $('files').addEventListener('click', e => {
   const b = e.target.closest('[data-del]'); if (!b) return;
-  state.files.splice(+b.dataset.del, 1); rebuild();
+  const i = +b.dataset.del, f = state.files[i];
+  if (GAS && f.saved){
+    if (state.delArm !== i){ state.delArm = i; renderFiles(); return; }
+    state.delArm = null;
+    gasCall('remove', { month: f.month, key: f.key }).then(r => { state.months = r.months; toast('保存から削除しました（' + r.removed + '件）'); });
+  }
+  state.files.splice(i, 1); rebuild();
 });
 const drop = $('drop');
 drop.addEventListener('click', () => $('file').click());
@@ -811,7 +884,14 @@ $('board').addEventListener('change', e => {
 const LS = 'kyb-sales-v1';
 let store = {};
 try { store = JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch(e) { store = {}; }
-const saveStore = () => { try { localStorage.setItem(LS, JSON.stringify(store)); } catch(e) {} };
+const settingTimers = {};
+const saveStore = () => {
+  try { localStorage.setItem(LS, JSON.stringify(store)); } catch(e) {}
+  if (GAS && state.fac && store[state.fac]){
+    const f = state.fac; clearTimeout(settingTimers[f]);
+    settingTimers[f] = setTimeout(() => gasCall('saveSettings', { facility: f, data: store[f] }).then(() => toast('設定を保存しました（全員に反映）')), 600);
+  }
+};
 function facStore(f){
   if (!store[f]) store[f] = { settings: C.defaultSettings(f), tok: [], sho: {}, gen: {} };
   return store[f];
@@ -858,14 +938,14 @@ function salesView(){
     <div class="mnote" style="margin-top:6px">コピーした数字は、月報の「介護・看護・特指示」の欄にそのまま貼り付けられます（タブ区切り）。</div></div>`;
   // 利用者別
   const kc = C.KAIGO_CATS, nc = [['iryo','医療'],['I1','Ⅰ1'],['I2','Ⅰ2'],['I5','Ⅰ5']];
-  h += `<div class="card"><div class="srow"><h3>👤 利用者別</h3><span class="sp"></span><span class="mnote">特指示・初回・減算は利用者ごとに変えられます（このパソコンに保存）</span></div>
+  h += `<div class="card"><div class="srow"><h3>👤 利用者別</h3><span class="sp"></span><span class="mnote">${m.orders&&m.orders.size?'📋 特指示は傷病一覧の期間で自動判定（期間内の医療の訪問だけ）。チェックは手動で月全部を特指示にするとき':'📋 傷病一覧CSV（前月・当月）を入れると、特指示を訪問日で自動判定します'}</span></div>
     <div class="scroll"><table class="list num ulist"><tr><th class="l">利用者</th>${kc.map(c=>`<th class="k">${c}</th>`).join('')}${nc.map(([,l])=>`<th class="n">${l}</th>`).join('')}
       <th>介護</th><th>看護</th><th>合計</th><th class="noprint">特指示</th><th class="noprint">初回</th><th class="noprint">減算</th></tr>
     ${r.users.map(u=>{ const g = fs.gen[u.userKey];
       return `<tr><td class="l">${esc(u.user.replace(/[\s　]+/g,''))}${u.shogai?` <span class="pill shogai">障害${u.shogai}</span>`:''}</td>
       ${kc.map(c=>`<td class="k">${u.kaigo.counts[c]||''}</td>`).join('')}${nc.map(([c])=>`<td class="n">${u.kango.counts[c]||''}</td>`).join('')}
       <td>${u.kaigo.amount?num(u.kaigo.amount):''}</td><td>${(u.kango.amount+u.tokushiji)?num(u.kango.amount+u.tokushiji):''}</td><td><b>${num(u.total)}</b></td>
-      <td class="noprint"><input type="checkbox" data-tok="${esc(u.userKey)}" ${fs.tok.includes(u.userKey)?'checked':''}></td>
+      <td class="noprint tokc">${u.tokPeriods.length?`<span class="auto" title="傷病一覧の特別指示の期間">自動 ${u.tokPeriods.map(esc).join('・')}${u.tokAuto?`（${u.tokAuto}回）`:''}</span>`:''}<label class="man" title="期間に関係なく、この月の医療の訪問を全部特指示にする"><input type="checkbox" data-tok="${esc(u.userKey)}" ${fs.tok.includes(u.userKey)?'checked':''}>${u.tokPeriods.length?'全部':''}</label></td>
       <td class="noprint"><input type="number" min="0" max="9" data-sho="${esc(u.userKey)}" value="${fs.sho[u.userKey]||''}" style="width:44px"></td>
       <td class="noprint"><select data-gen="${esc(u.userKey)}"><option value="">施設の設定</option>${['0.1','0.12','0'].map(v=>`<option value="${v}" ${g!==undefined&&String(g)===v?'selected':''}>${GEN_LABEL[v]}</option>`).join('')}</select></td></tr>`; }).join('')}
     </table></div></div>`;
@@ -902,7 +982,90 @@ $('board').addEventListener('change', e => {
   else return;
   saveStore(); renderBoard();
 });
-renderBoard();
+
+// ===== GAS版（保存つき） =====
+function gasCall(action, p){
+  return new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(e => { toast('⚠ ' + (e && e.message || e), true); rej(e); }).api(action, Object.assign({ device: DEVICE }, p || {})));
+}
+function toast(msg, bad){
+  let t = $('toast'); if (!t){ t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.className = 'show' + (bad ? ' bad' : ''); clearTimeout(t._h); t._h = setTimeout(() => t.className = '', 3500);
+}
+function fileKey(f){
+  if (f.kind === 'kango') return 'kango';
+  if (f.kind === 'shiji') return 'shiji';
+  const sho = f.records.length && f.records.every(r => r.type === '障害');
+  return (sho ? 'shogai:' : 'kaigo:') + f.facility;
+}
+function pickMonth(f){
+  if (f.month) return f.month;
+  const ms = C.inferMonths(f.records) || [];
+  const now = new Date(), cur = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  if (state.month && ms.includes(state.month)) return state.month;
+  if (ms.includes(cur)) return cur;
+  const past = ms.filter(m => m <= cur); return past.length ? past[past.length - 1] : (ms[0] || cur);
+}
+async function gasPersist(f){
+  if (f.kind === 'kaigo' && !f.facility) { f.saved = false; return; }
+  const month = pickMonth(f), key = fileKey(f), isShiji = f.kind === 'shiji';
+  if (f.saved && f.key && (f.key !== key || f.month !== month)) await gasCall('remove', { month: f.month, key: f.key });
+  const dup = state.files.findIndex(x => x !== f && x.saved && x.key === key && x.month === month);
+  if (dup >= 0) state.files.splice(dup, 1);
+  const r = await gasCall('save', { month, key, kind: f.kind, facility: f.facility || '', fileName: f.name, records: f.records });
+  Object.assign(f, { saved: true, key, month, savedBy: state.me || '', savedAt: '今' });
+  state.months = r.months;
+  toast(`保存しました：${+month.slice(5)}月 ${key === 'shiji' ? '傷病一覧（指示）' : key === 'kango' ? '訪問看護' : key.replace('kaigo:', '介護 ').replace('shogai:', '障害 ')}（${r.saved}件${r.replaced ? '・前の' + r.replaced + '件と差し替え' : ''}）`);
+  if (isShiji) renderMonthSel();
+  else if (state.month && month !== state.month) { await gasLoad(month); }
+  else { state.month = month; renderMonthSel(); }
+}
+async function gasLoad(month){
+  $('board').innerHTML = '<div class="card empty">保存したデータを読み込んでいます…</div>';
+  const r = await gasCall('load', { month });
+  state.month = r.month; state.months = r.months;
+  state.files = r.files.map(f => ({ name: f.fileName, size: 0, kind: f.kind, facility: f.facility || null, month: f.month || r.month, key: f.key, saved: true, savedBy: f.savedBy, savedAt: f.savedAt,
+    records: f.records.map(x => Object.assign(x, { userKey: C.normName(x.user) })) }));
+  store = Object.assign({}, store, r.settings || {});
+  rebuild(); renderMonthSel();
+}
+function renderMonthSel(){
+  if (!state.months || !state.months.length) return;
+  let el = $('monthsel');
+  if (!el){ el = document.createElement('select'); el.id = 'monthsel'; el.className = 'monthsel'; $('hstat').before(el); el.addEventListener('change', () => gasLoad(el.value)); }
+  el.innerHTML = state.months.map(m => `<option value="${m}" ${m === state.month ? 'selected' : ''}>📅 ${m.slice(0, 4)}年${+m.slice(5)}月（保存済み）</option>`).join('');
+}
+async function gasBoot(){
+  $('board').innerHTML = '<div class="card empty">確認しています…</div>';
+  const b = await gasCall('boot', {});
+  state.me = b.name || '';
+  if (b.status === '未登録'){
+    $('upload').style.display = 'none';
+    $('board').innerHTML = `<div class="card reg"><h3>🔐 このパソコンを登録してください</h3>
+      <p class="mnote">登録すると本部に申請が届きます。承認されると使えるようになります。</p>
+      <label>名前<input id="rgname" placeholder="例：山田 花子"></label>
+      <label>施設<input id="rgfac" placeholder="例：宮地町"></label>
+      <button id="rgbtn" class="primary">申請する</button>
+      <p class="mnote">端末ID：${esc(DEVICE.slice(0, 8))}</p></div>`;
+    $('rgbtn').onclick = async () => {
+      const name = $('rgname').value.trim(); if (!name){ toast('名前を入れてください', true); return; }
+      const r = await gasCall('register', { name, facility: $('rgfac').value.trim() });
+      if (r.status === '承認') location.reload(); else gasBoot();
+    };
+    return;
+  }
+  if (b.status !== '承認'){
+    $('upload').style.display = 'none';
+    $('board').innerHTML = `<div class="card reg"><h3>⏳ 本部の承認を待っています</h3>
+      <p>${esc(b.name || '')} さんのパソコンの申請は届いています。承認されたら、このページを開き直してください。</p>
+      <p class="mnote">端末ID：${esc(DEVICE.slice(0, 8))}　状態：${esc(b.status)}</p></div>`;
+    return;
+  }
+  $('upload').style.display = '';
+  state.months = b.months || [];
+  if (state.months.length) await gasLoad(state.months[0]);
+  else { renderBoard(); toast('まだ保存されたデータはありません。CSVを入れると保存されます'); }
+}
+if (GAS) gasBoot(); else renderBoard();
 })();
 </script>
 </body>
