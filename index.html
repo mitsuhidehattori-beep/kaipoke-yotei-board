@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>訪問予定 施設別ボード</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:light;
+  --bg:#f6f7fb;--card:#fff;--ink:#1f2937;--sub:#6b7280;--line:#e5e7eb;
+  --kango:#2563eb;--kango-bg:#dbeafe;--kaigo:#ea580c;--kaigo-bg:#ffedd5;--shogai:#b45309;--shogai-bg:#fef3c7;
+  --red:#dc2626;--red-bg:#fee2e2;--head:#0f172a;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+header{background:var(--head);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:14px}
+header h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.05em}
+header .tag{font-size:12px;opacity:.75}
+main{padding:16px 22px;max-width:1600px;margin:0 auto}
+.card{background:var(--card);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.07);padding:14px 16px;margin-bottom:14px}
+.drop{border:2px dashed #94a3b8;border-radius:12px;padding:18px;text-align:center;color:var(--sub);cursor:pointer;background:#f8fafc}
+.drop.over{border-color:var(--kango);background:#eff6ff}
+.drop b{color:var(--ink)}
+.files{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.chip{display:flex;align-items:center;gap:6px;border-radius:8px;padding:6px 10px;font-size:12px;border:1px solid var(--line);background:#fff}
+.chip.kango{border-left:5px solid var(--kango)}
+.chip.kaigo{border-left:5px solid var(--kaigo)}
+.chip select,.chip input{font-size:12px;padding:2px 4px}
+.chip .x{cursor:pointer;color:var(--sub);border:none;background:none;font-size:14px}
+.err{color:var(--red);font-size:12px;margin-top:6px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tab{border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 14px;cursor:pointer;font-weight:600;font-size:13px}
+.tab.on{background:var(--head);color:#fff;border-color:var(--head)}
+.tab .n{display:inline-block;margin-left:6px;background:var(--red);color:#fff;border-radius:999px;padding:0 7px;font-size:11px}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.bar button,.bar select{font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer}
+.bar .day{font-size:18px;font-weight:700;min-width:130px;text-align:center}
+.bar .sp{flex:1}
+.badge{border-radius:8px;padding:6px 12px;font-weight:700}
+.badge.red{background:var(--red-bg);color:var(--red)}
+.badge.ok{background:#dcfce7;color:#15803d}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--sub)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-2px}
+.grid{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:#fff}
+.row{display:flex;border-bottom:1px solid var(--line);min-height:40px}
+.row:last-child{border-bottom:none}
+.row.hasred .name{background:var(--red-bg);color:var(--red)}
+.name{position:sticky;left:0;z-index:2;width:130px;min-width:130px;padding:6px 8px;background:#f8fafc;border-right:1px solid var(--line);font-weight:600;font-size:13px;display:flex;align-items:center}
+.lane{position:relative;flex:1}
+.hours{display:flex;border-bottom:2px solid var(--line);background:#f8fafc;font-size:11px;color:var(--sub);position:sticky;top:0;z-index:3}
+.hours .name{background:#f8fafc}
+.hcell{position:absolute;top:0;bottom:0;border-left:1px solid #f1f5f9}
+.hlabel{position:absolute;top:4px;font-size:11px;color:var(--sub);transform:translateX(3px)}
+.v{position:absolute;height:30px;border-radius:6px;font-size:10.5px;line-height:1.25;padding:1px 4px;overflow:hidden;white-space:nowrap;border:1px solid transparent;cursor:default}
+.v.kango{background:var(--kango-bg);border-color:var(--kango);color:#1e3a8a}
+.v.kaigo{background:var(--kaigo-bg);border-color:var(--kaigo);color:#7c2d12}
+.v.shogai{background:var(--shogai-bg);border-color:var(--shogai);color:#78350f}
+.v.red{border:2px solid var(--red);box-shadow:0 0 0 2px var(--red-bg);z-index:1}
+.list{width:100%;border-collapse:collapse;background:#fff}
+.list th,.list td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;font-size:13px}
+.list th{background:#f8fafc;color:var(--sub);font-weight:600}
+.list td.t{width:110px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.list td.k{width:70px}
+.list tr.red td{background:var(--red-bg)}
+.pill{border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
+.pill.kango{background:var(--kango)}.pill.kaigo{background:var(--kaigo)}.pill.shogai{background:var(--shogai)}
+.warn{background:#fffbeb;border-left:5px solid #f59e0b;color:#92400e}
+.printonly{display:none}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:none;border-radius:0;background:#fff}
+.seg.kf button{font-size:14px;padding:8px 14px;font-weight:700}
+.seg button.on{background:var(--head);color:#fff}
+.sheets{display:flex;flex-direction:column;gap:16px;--rh:24px}
+.sheet{background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.12);padding:12px;border-radius:10px;overflow-x:auto}
+.sh-grid{grid-template-columns:52px repeat(var(--n), minmax(150px,1fr));min-width:max-content}
+.sh-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:16px;margin-bottom:8px;position:sticky;left:0}
+.sh-head .per{font-size:13px;padding:1px 8px;border-radius:6px;color:#fff;background:#0ea5e9}
+.sh-head .per.night{background:#334155}
+.sh-head .pg{font-size:12px;color:var(--sub)}.sh-head .sp{flex:1}.sh-head .badge{font-size:12px;padding:2px 8px}
+.sh-head .lg{font-size:11px;color:var(--sub)}.sh-head .lg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 2px 0 6px;vertical-align:-1px}
+.lg i.kango{background:var(--kango)}.lg i.kaigo{background:var(--kaigo)}.lg i.shogai{background:var(--shogai)}
+.sh-grid{display:grid;border:1px solid #94a3b8}
+.sh-ch{border-left:1px solid #cbd5e1;border-bottom:1.5px solid #94a3b8;padding:4px 6px;font-size:13px;line-height:1.25;display:flex;flex-direction:column;justify-content:center;min-height:40px;position:sticky;top:0}
+.sh-ch small{font-size:11px;color:var(--sub)}
+.sh-ch.kango{border-top:3px solid var(--kango);background:#eff6ff}.sh-ch.kaigo{border-top:3px solid var(--kaigo);background:#fff7ed}.sh-ch.shogai{border-top:3px solid var(--shogai);background:#fffbeb}
+.sh-time{position:sticky;left:0;z-index:2;background:#f8fafc}
+.sh-time span{position:absolute;left:4px;font-size:12px;color:#475569;font-weight:700;transform:translateY(.3mm)}
+.sh-col{position:relative;border-left:1px solid #cbd5e1;background-image:linear-gradient(#cbd5e1 1px,transparent 1px),linear-gradient(#eef2f7 1px,transparent 1px);background-size:100% calc(var(--rh)*4),100% var(--rh)}
+.sh-it{position:absolute;box-sizing:border-box;padding:0 4px;font-size:12px;line-height:calc(var(--rh) - 2px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;border-radius:1mm;border:1px solid}
+.sh-it.kango{background:var(--kango-bg);border-color:var(--kango)}.sh-it.kaigo{background:var(--kaigo-bg);border-color:var(--kaigo)}.sh-it.shogai{background:var(--shogai-bg);border-color:var(--shogai)}
+.sh-it.red{border:1.5px solid var(--red);background:var(--red-bg)}
+.sh-it.tall{white-space:normal}
+.sh-it em{font-style:normal;font-weight:700;color:#1e40af}.sh-it small{font-size:10.5px;color:#475569}
+.empty-sheet{height:auto;padding:6mm}.empty-sheet p{color:var(--sub)}
+.empty{padding:40px;text-align:center;color:var(--sub)}
+h3{margin:4px 0 10px;font-size:15px}
+.ovl{margin-top:12px}
+.ovl summary{cursor:pointer;font-weight:700;color:var(--red)}
+
+/* ===== theme ===== */
+.files{display:block;margin-top:10px}
+.files summary{cursor:pointer;font-weight:700;font-size:13px;color:var(--sub);padding:4px 2px}
+.files summary .need{margin-left:8px;background:#fff4e5;color:#b54708;border-radius:999px;padding:2px 10px;font-size:12px}
+.flist{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+@media(max-width:600px){
+  header{flex-wrap:wrap;gap:10px;padding:12px 14px}
+  header h1{font-size:17px}header p{font-size:10.5px}
+  .hstat span{font-size:11px;padding:3px 9px}
+  main{padding:12px 10px 30px}
+  .card{padding:12px}
+  .datebig{font-size:20px;min-width:0}
+  .datenav .nav{width:34px;height:34px}
+  .tab{padding:7px 13px;font-size:13px}
+  .name{width:96px;min-width:96px;font-size:12px}
+  .chip{width:100%;flex-wrap:wrap}
+  .upload.compact .drop{flex-wrap:wrap}
+}
+
+:root{--bg:#eef1f5;--ink:#18222f;--sub:#64707f;--line:#dfe4ea;--head:#12343b;--accent:#1f8a87;
+  --kango:#2f6fde;--kango-bg:#e8f0fd;--kaigo:#ee7a1f;--kaigo-bg:#fdf0e4;--shogai:#a16207;--shogai-bg:#fbf3dc;--red:#d92d20;--red-bg:#fdecea}
+body{font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;font-size:14px;-webkit-font-smoothing:antialiased;font-feature-settings:"palt"}
+header{background:var(--head);padding:14px 26px;justify-content:space-between;box-shadow:0 2px 0 var(--accent)}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#2bb5a8,#1f8a87);display:grid;place-items:center;font-weight:900;font-size:18px;color:#fff}
+header h1{font-size:19px;font-weight:900;letter-spacing:.06em}
+header p{margin:2px 0 0;font-size:11.5px;opacity:.72;letter-spacing:.04em}
+.hstat{display:flex;gap:8px;flex-wrap:wrap}
+.hstat span{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:4px 12px;font-size:12px}
+main{padding:18px 26px 40px;max-width:1500px}
+.card{border-radius:14px;box-shadow:0 1px 2px rgba(16,24,40,.06),0 4px 14px rgba(16,24,40,.04);border:1px solid #e6eaef;padding:16px 18px}
+.drop{border:2px dashed #b6c2cf;border-radius:12px;padding:22px;background:#f8fafc;transition:.15s}
+.drop:hover{border-color:var(--accent);background:#f0f9f8}
+.drop .big{font-size:16px;font-weight:700;color:var(--ink)}
+.drop .ic{font-size:26px;display:block;margin-bottom:4px}
+.drop .mini{display:none}
+.upload.compact .drop{padding:10px 14px;text-align:left;display:flex;align-items:center;gap:10px}
+.upload.compact .drop .full{display:none}.upload.compact .drop .mini{display:inline;font-weight:700;color:var(--accent)}
+.chip{border-radius:10px;padding:7px 12px;font-size:12.5px;gap:8px}
+.chip.kango{border-left:4px solid var(--kango)}.chip.kaigo{border-left:4px solid var(--kaigo)}
+.chip input{border:1px solid var(--line);border-radius:6px;padding:3px 6px}
+.tabs{gap:8px;margin:4px 0 14px}
+.tab{padding:9px 18px;font-size:14px;border-color:#d5dce4;transition:.12s}
+.tab:hover{border-color:var(--accent)}
+.tab.on{background:var(--head);border-color:var(--head);box-shadow:0 2px 6px rgba(18,52,59,.25)}
+.ctrl{display:flex;flex-direction:column;gap:12px}
+.row1,.row2{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.datenav{display:flex;align-items:center;gap:6px}
+.datenav .nav{width:38px;height:38px;border-radius:10px;font-size:18px;padding:0;display:grid;place-items:center}
+.datebig{font-size:26px;font-weight:900;letter-spacing:.02em;min-width:190px;text-align:center;font-variant-numeric:tabular-nums}
+.datebig small{font-size:15px;font-weight:700;color:var(--sub);margin-left:2px}
+.facchip{background:#e7f3f2;color:var(--head);font-weight:900;border-radius:8px;padding:6px 12px;font-size:15px}
+.bar button,.bar select,.ctrl button,.ctrl select{font-size:13px;padding:7px 12px;border-radius:9px;border:1px solid #d5dce4;background:#fff;cursor:pointer;font-family:inherit}
+.ctrl button:hover{border-color:var(--accent)}
+.sp{flex:1}
+.badge{border-radius:999px;padding:7px 14px;font-size:13.5px}
+.mnote{font-size:12px;color:var(--sub)}
+.seg{border-color:#d5dce4;border-radius:10px}
+.seg button{border:none!important;border-radius:0!important;padding:8px 14px}
+.seg button.on{background:var(--head);color:#fff}
+.legend i{border-radius:4px}
+/* board timeline */
+.grid{border-color:#e3e8ee;border-radius:12px}
+.hours{background:#f7f9fb}
+.name{width:140px;min-width:140px;font-size:13.5px;background:#fbfcfd}
+.row:nth-child(even) .lane{background:#fcfdfe}
+.v{border-radius:7px;border:1px solid rgba(0,0,0,.06);border-left-width:4px;box-shadow:0 1px 1px rgba(16,24,40,.05);padding:2px 5px;font-size:11px}
+.v.kango{border-left-color:var(--kango);background:var(--kango-bg);color:#173b80}
+.v.kaigo{border-left-color:var(--kaigo);background:var(--kaigo-bg);color:#7a3608}
+.v.shogai{border-left-color:var(--shogai);background:var(--shogai-bg);color:#5c3a05}
+.v.red{border:1.5px solid var(--red);border-left-width:4px;box-shadow:0 0 0 3px rgba(217,45,32,.15)}
+.row.hasred .name{background:var(--red-bg);color:var(--red)}
+/* care sheet (screen) */
+.sheet{border-radius:14px;border:1px solid #e3e8ee;padding:16px}
+.sh-head b:first-child{font-size:20px;font-weight:900}
+.sh-grid{border-color:#c9d2dc;border-radius:8px;overflow:hidden}
+.sh-ch{background:#fbfcfd}
+.sh-ch b{font-size:14px}
+.sh-col{background-image:linear-gradient(#c7d0da 1px,transparent 1px),linear-gradient(#eef2f6 1px,transparent 1px)}
+.sh-col:nth-of-type(even){background-color:#fcfdfe}
+.sh-it{border-radius:6px;border:1px solid rgba(0,0,0,.06);border-left-width:3px}
+.sh-it.kango{border-left-color:var(--kango)}.sh-it.kaigo{border-left-color:var(--kaigo)}.sh-it.shogai{border-left-color:var(--shogai)}
+.sh-it.red{border:1.5px solid var(--red);border-left-width:3px;background:var(--red-bg)}
+.sh-it b{font-variant-numeric:tabular-nums}
+.warn{border-radius:12px}
+.empty{font-size:15px}
+@media print{
+  @page{size:A4 landscape;margin:8mm}
+  .sh-grid{border-radius:0}.sheet{border:none}.sh-it{box-shadow:none}
+  .ctrl .row2,.mnote{display:none!important}
+  .sheets{display:block}
+  .sheets{--rh:3.55mm}
+  .sheet{box-shadow:none;width:auto;height:188mm;padding:0;border-radius:0;overflow:hidden;break-after:page}
+  .sh-grid{grid-template-columns:13mm repeat(var(--n), minmax(0,1fr));min-width:0}
+  .sh-head{font-size:12pt;margin-bottom:2mm}.sh-head .per{font-size:10pt}.sh-head .pg,.sh-head .badge{font-size:9pt}.sh-head .lg{font-size:8pt}
+  .sh-ch{font-size:8pt;padding:1mm 1.2mm;min-height:9mm;position:static}.sh-ch small{font-size:6.5pt}
+  .sh-time{position:relative}.sh-time span{font-size:7pt;left:1mm}
+  .sh-it{font-size:6.6pt;padding:0 .8mm;line-height:3.3mm}.sh-it small{font-size:6pt}
+  .sh-it:not(.tall) small{display:none}
+  .sh-it:not(.tall){font-size:6.2pt;padding:0 .5mm;letter-spacing:-.15px}
+  .sheets .sheet:last-child{break-after:auto}
+  body.care .card,body.care .tabs{display:none!important}
+  body{background:#fff;font-size:11px}
+  header,.noprint{display:none!important}
+  main{padding:0;max-width:none}
+  .card{box-shadow:none;padding:0;margin:0 0 6px}
+  .grid{overflow:visible;border:none}
+  .row{break-inside:avoid}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .ovl[open] summary{display:block}
+  .printonly{display:block}
+  .printonly + .printonly{break-before:page}
+  .ovl{break-inside:avoid}
+  .printonly .v{font-size:8.5px;height:21px;line-height:1.15}
+  .printonly .row{min-height:0}
+  .printonly .name{font-size:10px;padding:2px 6px}
+  .printonly h3{margin:0 0 4px;font-size:12px}
+}
+</style>
+</head>
+<body>
+<header><div class="brand"><span class="logo">訪</span><div><h1>訪問予定ボード</h1><p>訪問看護 ＋ 訪問介護 ／ カイポケの予定から自動でつくる</p></div></div><div class="hstat" id="hstat"></div></header>
+<main>
+  <section class="card noprint upload" id="upload">
+    <div class="drop" id="drop"><span class="full"><span class="ic">📂</span><span class="big">カイポケの予定CSVをここにドラッグ</span>（またはクリックして選ぶ）<br>
+      <span style="font-size:12px">🟦 看護：各種情報出力 → スケジュール表（予定）　🟧 介護：出力対象選択 → シフト表（事業所ごと）</span></span>
+      <span class="mini">＋ CSVを追加・入れ替え</span><span class="mini" style="font-weight:400;color:var(--sub);font-size:12px">（ここにドラッグ／クリック）</span></div>
+    <input type="file" id="file" accept=".csv" multiple hidden>
+    <div class="files" id="files"></div>
+    <div class="err" id="err"></div>
+  </section>
+  <section id="board"></section>
+</main>
+<script>
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.Core = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  function parseCsv(text) {
+    text = String(text || '').replace(/^﻿/, '');
+    const rows = [];
+    let row = [], field = '', q = false, i = 0, any = false;
+    for (; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+        else field += c;
+      } else if (c === '"') { q = true; any = true; }
+      else if (c === ',') { row.push(field); field = ''; any = true; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        if (any || field !== '') { row.push(field); rows.push(row); }
+        row = []; field = ''; any = false;
+      } else { field += c; any = true; }
+    }
+    if (any || field !== '') { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  const normName = s => String(s || '').replace(/[\s　★●■◆☆○◎]/g, '');
+  const cleanStaff = s => String(s || '').replace(/^[★●■◆☆○◎]+/, '').trim();
+  const toMin = t => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '').trim()); return m ? (+m[1]) * 60 + (+m[2]) : NaN; };
+
+  function readRecords(text, fileName) {
+    const rows = parseCsv(text);
+    if (!rows.length) throw new Error(fileName + '：中身が空です');
+    const h = rows[0].map(x => x.trim());
+    const col = n => h.indexOf(n);
+    let kind;
+    if (col('職員名１') >= 0 && col('事業所名') >= 0) kind = 'kango';
+    else if (col('ヘルパー名') >= 0) kind = 'kaigo';
+    else throw new Error(fileName + '：カイポケの予定CSV（看護スケジュール表／介護シフト表）ではないようです');
+    const ix = {
+      staff: kind === 'kango' ? col('職員名１') : col('ヘルパー名'),
+      office: col('事業所名'), day: col('日付'), user: col('利用者'), type: col('業務種別'),
+      service: col('サービス内容'), weekday: col('曜日'), start: col('開始時間'), end: col('終了時間'),
+    };
+    const records = [];
+    for (let r = 1; r < rows.length; r++) {
+      const v = rows[r], g = k => (ix[k] >= 0 ? (v[ix[k]] || '').trim() : '');
+      const user = g('user');
+      if (/[\/年-]/.test(g('day'))) throw new Error(fileName + '：日付の形が想定と違います（' + g('day') + '）。カイポケの予定CSVをそのまま入れてください');
+      const start = toMin(g('start')), end = toMin(g('end')), day = parseInt(g('day'), 10);
+      if (!user || isNaN(start) || isNaN(end) || isNaN(day)) continue;
+      records.push({
+        kind, day, user, userKey: normName(user), staff: cleanStaff(g('staff')), type: g('type'),
+        service: g('service'), weekday: g('weekday'), start, end: end < start ? end + 1440 : end, office: g('office'),
+      });
+    }
+    const fm = /(20\d{2})(0[1-9]|1[0-2])/.exec(String(fileName));
+    return { kind, records, month: fm ? fm[1] + '-' + fm[2] : null };
+  }
+
+  const WD = ['日', '月', '火', '水', '木', '金', '土'];
+  function inferMonths(records) {
+    const pairs = new Map();
+    for (const r of records) if (r.weekday && WD.includes(r.weekday)) pairs.set(r.day, r.weekday);
+    if (!pairs.size) return null;
+    const out = [];
+    for (let y = 2020; y <= 2035; y++) for (let m = 1; m <= 12; m++) {
+      const last = new Date(y, m, 0).getDate();
+      let ok = true;
+      for (const [d, w] of pairs) if (d > last || WD[new Date(y, m - 1, d).getDay()] !== w) { ok = false; break; }
+      if (ok) out.push(y + '-' + String(m).padStart(2, '0'));
+    }
+    return out;
+  }
+
+  function assignLanes(list, minMinutes) {
+    const sorted = list.slice().sort((a, b) => a.start - b.start), ends = [], lanes = new Map();
+    for (const v of sorted) {
+      const drawnEnd = Math.max(v.end, v.start + (minMinutes || 0));
+      let l = ends.findIndex(e => e <= v.start);
+      if (l < 0) { l = ends.length; ends.push(0); }
+      ends[l] = drawnEnd; lanes.set(v, l);
+    }
+    return lanes;
+  }
+
+  const UNKNOWN = '施設不明', UNSET = '施設未設定';
+
+  function findOverlaps(visits) {
+    const groups = new Map();
+    for (const v of visits) {
+      const k = v.facility + '|' + v.userKey + '|' + v.day;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(v);
+    }
+    const pairs = [];
+    for (const list of groups.values()) {
+      list.sort((a, b) => a.start - b.start || a.end - b.end);
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length && list[j].start < list[i].end; j++) {
+          pairs.push({ a: list[i], b: list[j] });
+          list[i].overlap = list[j].overlap = true;
+        }
+      }
+    }
+    return pairs;
+  }
+
+  function buildModel(files) {
+    const seen = new Set(), userFac = new Map(), visits = [];
+    for (const f of files) if (f.kind === 'kaigo') for (const r of f.records) {
+      if (f.facility && !userFac.has(r.userKey)) userFac.set(r.userKey, f.facility);
+    }
+    let id = 0;
+    for (const f of files) for (const r of f.records) {
+      const key = [r.kind, r.day, r.userKey, r.start, r.end, r.staff, r.type].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const facility = r.kind === 'kaigo' ? (f.facility || UNSET) : (userFac.get(r.userKey) || UNKNOWN);
+      visits.push(Object.assign({}, r, { facility, id: id++, overlap: false }));
+    }
+    const overlaps = findOverlaps(visits);
+    let common = null;
+    for (const f of files) {
+      const ms = f.month ? [f.month] : inferMonths(f.records);
+      if (!ms) continue;
+      common = common === null ? new Set(ms) : new Set(ms.filter(x => common.has(x)));
+    }
+    const mixedMonths = common !== null && common.size === 0;
+    const month = common && common.size === 1 ? [...common][0] : null;
+    const last = x => (x === UNKNOWN || x === UNSET ? 1 : 0);
+    const facilities = [...new Set(visits.map(v => v.facility))].sort((a, b) => last(a) - last(b) || a.localeCompare(b, 'ja'));
+    const staff = [...new Set(visits.map(v => v.staff).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+    const days = [...new Set(visits.map(v => v.day))].sort((a, b) => a - b);
+    return { facilities, visits, overlaps, staff, days, mixedMonths, month };
+  }
+
+  function guessFacility(fileName, candidates) {
+    const hit = (candidates || []).filter(c => c && String(fileName).includes(c)).sort((a, b) => b.length - a.length);
+    return hit[0] || null;
+  }
+
+  function shortService(s) {
+    return String(s || '')
+      .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+      .replace('基本療養費', '療養費').replace('身体介護', '身体').replace('生活援助', '生活')
+      .replace(/・?\d+-\d+人/, '').replace(/・/g, '');
+  }
+
+  const KIND_ORDER = { kango: 0, kaigo: 1, shogai: 2 };
+  const groupOf = v => (v.kind === 'kango' ? 'kango' : (v.type === '障害' ? 'shogai' : 'kaigo'));
+  const tagOf = v => (v.kind !== 'kango' ? '' : /医療/.test(v.type) ? '医' : /介護/.test(v.type) ? '介' : /保険外|自費/.test(v.type) ? '自' : '');
+
+  // period 'day' = 7:00-18:59 of `day`; 'night' = 19:00 of `day` - 6:59 of day+1
+  function careSheet(model, facility, day, period, perPage) {
+    const base = period === 'night' ? 19 * 60 : 7 * 60, rows = 48;
+    const inRange = v => {
+      if (v.facility !== facility) return null;
+      if (period === 'day') return v.day === day && v.start >= 420 && v.start < 1140 ? v.start : null;
+      if (v.day === day && v.start >= 1140) return v.start;
+      if (v.day === day + 1 && v.start < 420) return v.start + 1440;
+      return null;
+    };
+    const cols = new Map();
+    for (const v of model.visits) {
+      const st = inRange(v); if (st === null) continue;
+      const g = groupOf(v), key = g + '|' + v.staff;
+      if (!cols.has(key)) cols.set(key, { staff: v.staff, group: g, items: [] });
+      const en = st + (v.end - v.start);
+      cols.get(key).items.push({
+        v, start: st, end: en, row: Math.floor((st - base) / 15),
+        span: Math.max(1, Math.min(rows, Math.ceil((en - base) / 15)) - Math.floor((st - base) / 15)),
+        tag: tagOf(v), service: shortService(v.service),
+      });
+    }
+    const columns = [...cols.values()].map(c => {
+      c.items.sort((a, b) => a.start - b.start);
+      c.from = c.items[0].start; c.to = Math.max(...c.items.map(i => i.end));
+      return c;
+    }).sort((a, b) => KIND_ORDER[a.group] - KIND_ORDER[b.group] || a.from - b.from || a.staff.localeCompare(b.staff, 'ja'));
+    const pages = [];
+    for (let i = 0; i < columns.length; i += perPage) pages.push(columns.slice(i, i + perPage));
+    return { base, rows, columns, pages };
+  }
+
+  return { parseCsv, normName, toMin, readRecords, buildModel, findOverlaps, guessFacility, assignLanes, inferMonths, shortService, careSheet, UNKNOWN, UNSET };
+});
+
+</script>
+<script>
+(function(){
+'use strict';
+const C = window.Core;
+const FAC_DEFAULT = ['宮地町','矢作末広','矢作町','大和町'];
+const PX_PER_HOUR = 130;
+const state = { filesOpen: false, files: [], model: null, fac: null, day: null, staff: '', view: 'board', kf: 'all' };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hm = m => { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); };
+const cls = v => v.kind === 'kango' ? 'kango' : (v.type === '障害' ? 'shogai' : 'kaigo');
+const label = v => v.kind === 'kango' ? '看護' : (v.type === '障害' ? '障害' : '介護');
+const WD = ['日','月','火','水','木','金','土'];
+
+function facCandidates(){ return [...new Set([...FAC_DEFAULT, ...state.files.map(f => f.facility).filter(Boolean)])]; }
+
+async function addFiles(list){
+  $('err').textContent = '';
+  const errs = [];
+  for (const file of list){
+    try{
+      const buf = await file.arrayBuffer();
+      let text;
+      try { text = new TextDecoder('utf-8', {fatal:true}).decode(buf); } catch(e){ text = new TextDecoder('shift_jis').decode(buf); }
+      const r = C.readRecords(text, file.name);
+      const old = state.files.findIndex(f => f.name === file.name);
+      const prevFac = old >= 0 ? state.files[old].facility : null;
+      if (old >= 0) state.files.splice(old, 1);
+      state.files.push({ name:file.name, size:file.size, kind:r.kind, records:r.records,
+        month: r.month, facility: r.kind === 'kaigo' ? (prevFac || C.guessFacility(file.name, facCandidates())) : null });
+    }catch(e){ errs.push(e.message || String(e)); }
+  }
+  $('err').textContent = errs.join(' ／ ');
+  rebuild();
+}
+
+function rebuild(){
+  renderFiles();
+  if (!state.files.length){ state.model = null; renderBoard(); return; }
+  state.model = C.buildModel(state.files);
+  renderFiles();
+  const m = state.model;
+  if (!m.facilities.includes(state.fac)) state.fac = m.facilities[0] || null;
+  if (!m.days.includes(state.day)) {
+    const now = new Date(), cur = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+    const today = now.getDate();
+    state.day = (m.month === cur && m.days.includes(today)) ? today : m.days[0];
+  }
+  renderBoard();
+}
+
+function renderFiles(){
+  const opts = facCandidates();
+  $('upload').classList.toggle('compact', state.files.length > 0);
+  const nk = state.files.filter(f=>f.kind==='kango').length, nc = state.files.length - nk;
+  const mon = state.model && state.model.month ? +state.model.month.slice(5) + '月分' : '';
+  $('hstat').innerHTML = state.files.length ? `${mon?`<span>📅 ${mon}</span>`:''}<span>🟦 看護 ${nk}ファイル</span><span>🟧 介護 ${nc}ファイル</span>` : '';
+  const needOpen = state.files.some(f => f.kind === 'kaigo' && !f.facility);
+  if (needOpen) state.filesOpen = true;
+  $('files').innerHTML = !state.files.length ? '' : `<details id="fdet" ${state.filesOpen?'open':''}><summary>📄 読み込んだファイル（${state.files.length}）${needOpen?'<span class="need">施設を選んでください</span>':''}</summary><div class="flist">` + state.files.map((f,i) => `
+    <div class="chip ${f.kind}">
+      <b>${f.kind==='kango'?'🟦 看護':'🟧 介護'}</b> ${esc(f.name)}（${f.records.length}件）
+      ${f.kind==='kaigo' ? `施設：<input class="facsel" data-i="${i}" list="faclist" value="${esc(f.facility||'')}" placeholder="選ぶ／入力" size="9">` : ''}
+      <button class="x" data-del="${i}" title="外す">✕</button>
+    </div>`).join('') + `</div></details><datalist id="faclist">${opts.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`;
+}
+
+$('files').addEventListener('change', e => {
+  const s = e.target.closest('.facsel'); if (!s) return;
+  state.files[+s.dataset.i].facility = s.value.trim() || null;
+  rebuild();
+});
+$('files').addEventListener('toggle', e => { if (e.target.id === 'fdet') state.filesOpen = e.target.open; }, true);
+$('files').addEventListener('click', e => {
+  const b = e.target.closest('[data-del]'); if (!b) return;
+  state.files.splice(+b.dataset.del, 1); rebuild();
+});
+const drop = $('drop');
+drop.addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', e => { addFiles([...e.target.files]); e.target.value=''; });
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); addFiles([...e.dataTransfer.files]); });
+
+function dayLabel(d){
+  const any = state.model.visits.find(v => v.day === d);
+  return `${d}日` + (any && any.weekday ? `（${esc(any.weekday)}）` : '');
+}
+
+function renderBoard(){
+  const el = $('board');
+  document.body.classList.toggle('care', state.view === 'care');
+  const m = state.model;
+  if (!m){ el.innerHTML = `<div class="card empty">CSVを入れると、ここに施設ごとの予定が出ます。</div>`; return; }
+  const facVisits = m.visits.filter(v => v.facility === state.fac);
+  const ovByFac = f => m.overlaps.filter(p => p.a.facility === f && p.a.day === state.day).length;
+  const dayVisits = facVisits.filter(v => v.day === state.day);
+  const dayPairs = m.overlaps.filter(p => p.a.facility === state.fac && p.a.day === state.day);
+  const monthPairs = m.overlaps.filter(p => p.a.facility === state.fac).length;
+  const staffHere = [...new Set(dayVisits.map(v => v.staff).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja'));
+  if (state.staff && !staffHere.includes(state.staff)) state.staff = '';
+
+  let html = `<div class="tabs noprint">${m.facilities.map(f => {
+      const n = ovByFac(f);
+      return `<button class="tab ${f===state.fac?'on':''}" data-fac="${esc(f)}">${esc(f)}${n?`<span class="n">${n}</span>`:''}</button>`; }).join('')}</div>
+    <div class="card ctrl">
+      <div class="row1">
+        <span class="facchip">${esc(state.fac)}</span>
+        <div class="datenav"><button class="nav noprint" data-mv="-1" title="前の日">‹</button>
+          <span class="datebig">${m.month?+m.month.slice(5)+'月':''}${state.day}日<small>${(()=>{const a=m.visits.find(v=>v.day===state.day);return a&&a.weekday?'（'+esc(a.weekday)+'）':''})()}</small></span>
+          <button class="nav noprint" data-mv="1" title="次の日">›</button></div>
+        <select class="noprint" id="daysel">${m.days.map(d=>`<option value="${d}" ${d===state.day?'selected':''}>${d}日</option>`).join('')}</select>
+        <span class="sp"></span>
+        ${dayPairs.length ? `<span class="badge red">⚠ かぶり ${dayPairs.length}件</span>` : `<span class="badge ok">✓ かぶりなし</span>`}
+      </div>
+      <div class="row2 noprint">
+        <span class="seg"><button data-view="board" class="${state.view==='board'?'on':''}">📊 利用者ごと</button><button data-view="care" class="${state.view==='care'?'on':''}">📋 ケア割表</button></span>
+        <select id="staffsel"><option value="">👤 職員で絞る（全員）</option>${staffHere.map(s=>`<option value="${esc(s)}" ${s===state.staff?'selected':''}>${esc(s)}</option>`).join('')}</select>
+        <span class="legend"><span><i style="background:var(--kango)"></i>看護</span><span><i style="background:var(--kaigo)"></i>介護</span><span><i style="background:var(--shogai)"></i>障害</span><span><i style="background:var(--red)"></i>かぶり</span></span>
+        <span class="sp"></span>
+        <span class="mnote">この施設の今月のかぶり：<b>${monthPairs}件</b></span>
+        <button id="printbtn">🖨 印刷</button>
+      </div>
+    <div class="noprint warn" id="printnote" style="display:none;padding:8px 12px">印刷画面が出ないときは、パソコンに保存した「訪問予定ボード.html」をChrome／Edgeで開いて印刷してください（A4横）。</div></div>`;
+
+  const kaigoInFac = facVisits.some(v => v.kind === 'kaigo');
+  const kaigoToday = dayVisits.some(v => v.kind === 'kaigo');
+  if (m.mixedMonths){
+    html += `<div class="card warn" style="border-left-color:var(--red);background:var(--red-bg);color:var(--red)">⚠ <b>違う月のCSVが混ざっています。</b>かぶりが正しく出ません。同じ月のファイルだけにしてください。</div>`;
+  }
+  if (kaigoInFac && !kaigoToday){
+    const lastK = Math.max(...facVisits.filter(v => v.kind === 'kaigo').map(v => v.day));
+    html += `<div class="card warn">⚠ この日の<b>介護の予定</b>はカイポケにまだ入っていません（介護は${lastK}日まで）。看護の予定だけを表示しています。</div>`;
+  }
+  if (state.view === 'care'){
+    html += careSheets();
+    el.innerHTML = html; return;
+  }
+  if (state.staff){
+    const rows = dayVisits.filter(v => v.staff === state.staff).sort((a,b)=>a.start-b.start);
+    html += `<div class="card"><h3>👤 ${esc(state.staff)} さんの予定（${rows.length}件）</h3>
+      <table class="list"><tr><th>時間</th><th>種別</th><th>利用者</th><th>内容</th></tr>
+      ${rows.map(v=>`<tr class="${v.overlap?'red':''}"><td class="t">${hm(v.start)}〜${hm(v.end)}</td><td class="k"><span class="pill ${cls(v)}">${label(v)}</span></td><td>${esc(v.user)}${v.overlap?' ⚠':''}</td><td>${esc(v.service)}</td></tr>`).join('')}
+      </table></div>`;
+  } else if (!dayVisits.length){
+    html += `<div class="card empty">この日の予定はありません。</div>`;
+  } else {
+    html += `<div class="noprint">${timeline(dayVisits, null, null, PX_PER_HOUR, '')}</div>`;
+    const am = dayVisits.filter(v => v.start < 720), pm = dayVisits.filter(v => v.end > 720);
+    if (am.length) html += `<div class="printonly">${timeline(am, 0, 12, 75, '午前（0〜12時）')}</div>`;
+    if (pm.length) html += `<div class="printonly">${timeline(pm, 12, 24, 75, '午後（12〜24時）')}</div>`;
+    if (dayPairs.length){
+      html += `<details class="card ovl" open><summary>⚠ かぶりの一覧（${dayPairs.length}件）</summary>
+        <table class="list" style="margin-top:8px"><tr><th>利用者</th><th>予定1</th><th>予定2</th></tr>
+        ${dayPairs.map(p=>`<tr><td>${esc(p.a.user)}</td><td><span class="pill ${cls(p.a)}">${label(p.a)}</span> ${hm(p.a.start)}〜${hm(p.a.end)} ${esc(p.a.staff)}</td><td><span class="pill ${cls(p.b)}">${label(p.b)}</span> ${hm(p.b.start)}〜${hm(p.b.end)} ${esc(p.b.staff)}</td></tr>`).join('')}
+        </table></details>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+function timeline(vs, fh0, fh1, PX, title){
+  let h0 = fh0 != null ? fh0 : Math.floor(Math.min(...vs.map(v=>v.start))/60);
+  let h1 = fh1 != null ? fh1 : Math.ceil(Math.max(...vs.map(v=>v.end))/60);
+  if (h1 <= h0) h1 = h0 + 1;
+  const W = (h1-h0)*PX, lo = h0*60, hi = h1*60;
+  const x = m => (Math.min(Math.max(m, lo), hi) - lo) / 60 * PX;
+  const users = new Map();
+  for (const v of vs){ if (!users.has(v.userKey)) users.set(v.userKey, {name:v.user, list:[]}); users.get(v.userKey).list.push(v); }
+  const rows = [...users.values()].map(u => ({...u, red: u.list.some(v=>v.overlap)}))
+    .sort((a,b) => (b.red-a.red) || a.name.localeCompare(b.name,'ja'));
+  const LH = PX < 100 ? 24 : 34;
+  const hourCells = Array.from({length:h1-h0}, (_,i) => `<div class="hcell" style="left:${i*PX}px;width:${PX}px"></div>`).join('');
+  let out = `<div class="card" style="padding:8px">${title?`<h3>${title}</h3>`:''}<div class="grid"><div style="min-width:${W+130}px">
+    <div class="hours"><div class="name">利用者（${rows.length}人）</div><div class="lane" style="height:24px;width:${W}px">
+      ${Array.from({length:h1-h0}, (_,i)=>`<span class="hlabel" style="left:${i*PX}px">${(h0+i)%24}時</span>`).join('')}</div></div>`;
+  for (const r of rows){
+    r.list.sort((a,b)=>a.start-b.start);
+    const MINW = PX >= 100 ? 92 : 44, lanes = C.assignLanes(r.list, MINW / PX * 60);
+    const H = Math.max(1, Math.max(...lanes.values()) + 1) * LH + 4;
+    out += `<div class="row ${r.red?'hasred':''}"><div class="name">${r.red?'⚠ ':''}${esc(r.name.replace(/[\s　]+/g,''))}</div>
+      <div class="lane" style="height:${H}px;width:${W}px">${hourCells}
+      ${r.list.map(v => `<div class="v ${cls(v)} ${v.overlap?'red':''}" style="left:${x(v.start)}px;width:${Math.max(x(v.end)-x(v.start), MINW)}px;top:${2+lanes.get(v)*LH}px"
+        title="${label(v)}　${hm(v.start)}〜${hm(v.end)}　${esc(v.staff)}　${esc(v.service)}"><b>${hm(v.start)}〜${hm(v.end)}</b> ${label(v)}<br>${esc(v.staff.split(/[\s　]/)[0])}</div>`).join('')}
+      </div></div>`;
+  }
+  return out + `</div></div></div>`;
+}
+
+const GLABEL = { kango:'看護', kaigo:'介護', shogai:'障害' };
+const PER_PAGE = 10;
+function careSheets(){
+  const m = state.model, out = [];
+  for (const period of ['day','night']){
+    const sh = C.careSheet(m, state.fac, state.day, period, 1000);
+    sh.columns = sh.columns.filter(c => state.kf === 'all' || (state.kf === 'kango' ? c.group === 'kango' : c.group !== 'kango'));
+    sh.pages = []; for (let i = 0; i < sh.columns.length; i += PER_PAGE) sh.pages.push(sh.columns.slice(i, i + PER_PAGE));
+    const ttl = period === 'day' ? '日中　7:00〜18:59' : '夜間　19:00〜翌6:59';
+    if (!sh.columns.length){ out.push(`<div class="sheet empty-sheet"><div class="sh-head"><b>${esc(state.fac)}</b>　${dayLabel(state.day)}　<span class="per ${period}">${ttl}</span></div><p>この時間帯の予定はありません。</p></div>`); continue; }
+    const inP = v => period === 'day' ? (v.day === state.day && v.start >= 420 && v.start < 1140) : ((v.day === state.day && v.start >= 1140) || (v.day === state.day + 1 && v.start < 420));
+    const ov = m.overlaps.filter(p => p.a.facility === state.fac && inP(p.a)).length;
+    sh.pages.forEach((cols, pi) => {
+      let g = `<div class="sheet"><div class="sh-head"><b>${esc(state.fac)}</b>　<b>${dayLabel(state.day)}</b>　<span class="per ${period}">${ttl}</span>
+        ${sh.pages.length>1?`<span class="pg">${pi+1}/${sh.pages.length}枚</span>`:''}<span class="sp"></span>
+        ${ov?`<span class="badge red">⚠ かぶり ${ov}件</span>`:''}<span class="lg"><i class="kango"></i>看護 <i class="kaigo"></i>介護 <i class="shogai"></i>障害</span></div>
+        <div class="sh-grid" style="--n:${cols.length}">
+        <div class="sh-ch"></div>${cols.map(c=>`<div class="sh-ch ${c.group}"><b>${esc(c.staff.replace(/[\s　]+/g,''))}</b><small>${GLABEL[c.group]}　${hm(c.from)}〜${hm(c.to)}</small></div>`).join('')}
+        <div class="sh-time" style="height:calc(var(--rh)*${sh.rows})">${Array.from({length:sh.rows/4},(_,h)=>`<span style="top:calc(var(--rh)*${h*4})">${(sh.base/60+h)%24}:00</span>`).join('')}</div>`;
+      for (const c of cols){
+        const lanes = C.assignLanes(c.items.map(i=>({start:i.start,end:i.start+Math.max(15,i.end-i.start),i})), 15);
+        const nl = Math.max(1, ...[...lanes.values()].map(x=>x+1));
+        g += `<div class="sh-col" style="height:calc(var(--rh)*${sh.rows})">`;
+        for (const [o, l] of lanes){ const it = o.i;
+          g += `<div class="sh-it ${c.group} ${it.v.overlap?'red':''} ${it.span>1?'tall':''}" style="top:calc(var(--rh)*${it.row});height:calc(var(--rh)*${it.span});left:${l/nl*100}%;width:${100/nl}%"
+            title="${esc(it.v.user)} ${hm(it.start)}〜${hm(it.end)} ${esc(it.v.service)}"><b>${hm(it.start)}〜${hm(it.end)}</b> ${esc(it.v.user.replace(/[\s　]+/g,''))}${it.tag?`<em>(${it.tag})</em>`:''} <small>${esc(it.service)}</small></div>`; }
+        g += `</div>`;
+      }
+      out.push(g + `</div></div>`);
+    });
+  }
+  const cnt = g => { const c = new Set(); for (const p of ['day','night']) C.careSheet(m, state.fac, state.day, p, 1000).columns.forEach(x => { if (g === 'kango' ? x.group === 'kango' : x.group !== 'kango') c.add(x.group + x.staff); }); return c.size; };
+  const kf = `<div class="seg kf noprint" style="margin-bottom:10px">
+    <button data-kf="all" class="${state.kf==='all'?'on':''}">全部</button>
+    <button data-kf="kango" class="${state.kf==='kango'?'on':''}">🟦 看護だけ（${cnt('kango')}人）</button>
+    <button data-kf="kaigo" class="${state.kf==='kaigo'?'on':''}">🟧 介護・障害だけ（${cnt('kaigo')}人）</button></div>`;
+  return kf + `<div class="noprint" style="font-size:12px;color:var(--sub);margin:0 0 8px">画面では大きく表示しています（横にスクロールできます）。印刷するとA4よこに収まります。</div><div class="sheets">${out.join('')}</div>`;
+}
+
+$('board').addEventListener('click', e => {
+  const t = e.target.closest('[data-fac]'); if (t){ state.fac = t.dataset.fac; state.staff=''; renderBoard(); return; }
+  const mv = e.target.closest('[data-mv]');
+  if (mv){ const d = state.model.days, i = d.indexOf(state.day) + (+mv.dataset.mv); if (i>=0 && i<d.length){ state.day = d[i]; renderBoard(); } }
+});
+$('board').addEventListener('click', e => {
+  const kb = e.target.closest('[data-kf]'); if (kb){ state.kf = kb.dataset.kf; renderBoard(); return; }
+  const vb = e.target.closest('[data-view]'); if (vb){ state.view = vb.dataset.view; renderBoard(); return; }
+  if (!e.target.closest('#printbtn')) return;
+  try { window.print(); } catch(err) {}
+  const n = $('printnote'); if (n) n.style.display = 'block';
+});
+$('board').addEventListener('change', e => {
+  if (e.target.id === 'daysel'){ state.day = +e.target.value; renderBoard(); }
+  if (e.target.id === 'staffsel'){ state.staff = e.target.value; renderBoard(); }
+});
+renderBoard();
+})();
+</script>
+</body>
+</html>
