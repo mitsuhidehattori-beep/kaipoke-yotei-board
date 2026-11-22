@@ -100,6 +100,10 @@ h3{margin:4px 0 10px;font-size:15px}
 
 /* ===== theme ===== */
 .tokc{white-space:nowrap}.tokc .auto{background:#efe9fb;color:#5b3fa8;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700;margin-right:6px}.tokc .man{font-size:11px;color:var(--sub)}
+table.rec td.days{white-space:normal!important}.rec td.ngc{background:#fde8e8;color:#b42318;font-weight:700}.rec .days{max-width:520px;white-space:normal;line-height:1.9}
+.rec .dd{display:inline-block;background:#f3f5f8;border-radius:6px;padding:0 6px;margin:0 4px 2px 0;font-size:11.5px;white-space:nowrap}.rec .dd i{color:#b42318;font-style:normal;margin-left:3px}
+.pill.bad{background:#fde8e8;color:#b42318}.pill.mid{background:#fff4e5;color:#b45309}.pill.okc{background:#e7f6ec;color:#15803d}
+.kpi.ng .kv{color:#b42318}.kpi.okc .kv{color:#15803d}
 .saved{background:#e7f6ec;color:#15803d;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700}
 .monthsel{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:5px 10px;font-size:12.5px;font-family:inherit}
 .monthsel option{color:#000}
@@ -299,6 +303,8 @@ main{padding:18px 26px 40px;max-width:1500px}
     const h = rows[0].map(x => x.trim());
     const col = n => h.indexOf(n);
     if (col('指示区分') >= 0 && col('有効期間(開始)') >= 0) return readShiji(rows, col, fileName);
+    const uh = rows.slice(0, 8).findIndex(r => r.some(x => x.trim() === '氏名') && r.some(x => x.trim() === '拠点'));
+    if (uh >= 0) return readUriage(rows, uh, fileName);
     let kind;
     if (col('職員名１') >= 0 && col('事業所名') >= 0) kind = 'kango';
     else if (col('ヘルパー名') >= 0) kind = 'kaigo';
@@ -320,7 +326,38 @@ main{padding:18px 26px 40px;max-width:1500px}
         service: g('service'), weekday: g('weekday'), start, end: end < start ? end + 1440 : end, office: g('office'),
       });
     }
+    // カイポケの「実績」で出したCSV（記録Ⅱの列がある）は予定と混ぜない
+    if (kind === 'kango' && (col('記録Ⅱ開始時間') >= 0 || /実績/.test(String(fileName)))) return { kind: 'jisseki', records, month: fileMonth(fileName) };
     return { kind, records, month: fileMonth(fileName) };
+  }
+
+  // 売上管理シート（看護）：「拠点」「氏名」の見出しの上の行が日付。名前のない続きの行は前の人の分
+  function readUriage(rows, hi, fileName) {
+    const head = rows[hi].map(x => x.trim()), dayRow = rows[hi - 1] || [];
+    const ci = n => head.indexOf(n);
+    const cBase = ci('拠点'), cName = ci('氏名'), cKind = ci('指示書'), cTot = ci('延べ回数');
+    const dayCol = [];
+    dayRow.forEach((v, i) => { const d = String(v).trim(); if (/^\d{1,2}$/.test(d) && i > cName && (cTot < 0 || i < cTot)) dayCol.push([+d, i]); });
+    const bases = new Set();
+    for (let r = hi + 1; r < rows.length; r++) { const b = (rows[r][cBase] || '').trim(); if (b && (rows[r][cName] || '').trim()) bases.add(b); }
+    const records = []; let cur = null;
+    for (let r = hi + 1; r < rows.length; r++) {
+      const v = rows[r], g = i => (i >= 0 ? (v[i] || '').trim() : '');
+      if (!bases.has(g(cBase))) { cur = null; continue; }
+      const name = g(cName);
+      if (name) { cur = { kind: 'uriage', name, userKey: normName(name), base: g(cBase), kinds: [], days: {}, notes: {}, total: 0 }; records.push(cur); }
+      else if (g(0)) { cur = null; continue; }   // 部屋番号だけの空き部屋
+      if (!cur) continue;
+      if (g(cKind)) cur.kinds.push(g(cKind));
+      for (const [d, i] of dayCol) {
+        const x = g(i);
+        if (/^\d+$/.test(x)) { cur.days[d] = (cur.days[d] || 0) + (+x); cur.total += +x; }
+        else if (x) cur.notes[d] = x;
+      }
+    }
+    const y = (rows[0] || [])[3], mo = (rows[0] || [])[6];
+    const month = /^\d{4}$/.test(String(y).trim()) && /^\d{1,2}$/.test(String(mo).trim()) ? String(y).trim() + '-' + String(mo).trim().padStart(2, '0') : fileMonth(fileName);
+    return { kind: 'uriage', records, month, base: ((rows[0] || [])[1] || '').trim() };
   }
 
   // 傷病一覧（指示書の有効期間）。傷病名は使わないので持たない
@@ -407,7 +444,10 @@ main{padding:18px 26px 40px;max-width:1500px}
       if (!orders.has(r.userKey)) orders.set(r.userKey, []);
       orders.get(r.userKey).push(r);
     }
-    for (const f of files) if (f.kind !== 'shiji') for (const r of f.records) {
+    const actual = [], uriage = [];
+    for (const f of files) if (f.kind === 'uriage') for (const r of f.records) uriage.push(r);
+    for (const f of files) if (f.kind === 'jisseki') for (const r of f.records) actual.push(Object.assign({}, r, { facility: userFac.get(r.userKey) || UNKNOWN }));
+    for (const f of files) if (f.kind !== 'shiji' && f.kind !== 'jisseki' && f.kind !== 'uriage') for (const r of f.records) {
       const key = [r.kind, r.day, r.userKey, r.start, r.end, r.staff, r.type].join('|');
       if (seen.has(key)) continue;
       seen.add(key);
@@ -417,7 +457,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     const overlaps = findOverlaps(visits);
     let common = null;
     for (const f of files) {
-      if (f.kind === 'shiji') continue;
+      if (f.kind === 'shiji' || f.kind === 'jisseki' || f.kind === 'uriage') continue;
       const ms = f.month ? [f.month] : inferMonths(f.records);
       if (!ms) continue;
       common = common === null ? new Set(ms) : new Set(ms.filter(x => common.has(x)));
@@ -428,7 +468,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     const facilities = [...new Set(visits.map(v => v.facility))].sort((a, b) => last(a) - last(b) || a.localeCompare(b, 'ja'));
     const staff = [...new Set(visits.map(v => v.staff).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
     const days = [...new Set(visits.map(v => v.day))].sort((a, b) => a - b);
-    return { facilities, visits, overlaps, staff, days, mixedMonths, month, orders };
+    return { facilities, visits, overlaps, staff, days, mixedMonths, month, orders, actual, uriage };
   }
 
   function guessFacility(fileName, candidates) {
@@ -546,6 +586,66 @@ main{padding:18px 26px 40px;max-width:1500px}
     return list.filter(o => o.kubun === SPECIAL && o.from <= last && o.to >= first).sort((a, b) => a.from < b.from ? -1 : 1).map(o => md(o.from) + '〜' + md(o.to));
   }
 
+  // ===== 突き合わせ（カイポケ予定・カイポケ実績・売上管理シート）=====
+  const VAR = { '髙': '高', '﨑': '崎', '曻': '昇', '邊': '辺', '邉': '辺', '齋': '斎', '齊': '斉', '濵': '浜', '濱': '浜', '德': '徳', '瀨': '瀬', '栁': '柳', '戰': '戦', '櫻': '桜', '澤': '沢', '廣': '広', '惠': '恵', '眞': '真', '國': '国', '嶋': '島', '嶌': '島', '冨': '富', '條': '条' };
+  const looseKey = s => normName(String(s || '').replace(/[（(][^）)]*[）)]/g, '')).replace(/./g, c => VAR[c] || c);
+  function matchName(key, cands) {
+    if (cands.has(key)) return key;
+    const pre = [...cands].filter(k => k.startsWith(key) || key.startsWith(k));
+    if (key.length >= 2 && pre.length === 1) return pre[0];
+    if (key.length >= 3) {
+      const one = [...cands].filter(k => k.length === key.length && [...k].filter((c, i) => c !== key[i]).length === 1);
+      if (one.length === 1) return one[0];
+    }
+    return null;
+  }
+  const BASE_ALIAS = { '別館': '大和' };
+  function baseFacility(base, facilities) {
+    const b = BASE_ALIAS[base] || base;
+    const hit = facilities.filter(f => f.includes(b)).sort((x, y) => x.length - y.length);
+    return hit[0] || null;
+  }
+  function reconcile(model, facility, opts) {
+    opts = opts || {};
+    const upTo = opts.upToDay || 31, hasActual = !!(model.actual && model.actual.length), hasSheet = !!(model.uriage && model.uriage.length);
+    const people = new Map();   // looseKey → row
+    const person = (lk, init) => { if (!people.has(lk)) people.set(lk, Object.assign({ key: '', name: '', sheetName: '', kaipokeName: '', fac: '', planD: {}, actD: {}, sheetD: {}, notes: {} }, init)); return people.get(lk); };
+    const add = (o, d) => { o[d] = (o[d] || 0) + 1; };
+    for (const v of model.visits) if (v.kind === 'kango' && v.day <= upTo) { const p = person(looseKey(v.user), { key: v.userKey, name: v.user, kaipokeName: v.user, fac: v.facility }); add(p.planD, v.day); }
+    for (const v of model.actual || []) if (v.day <= upTo) { const p = person(looseKey(v.user), { key: v.userKey, name: v.user, kaipokeName: v.user, fac: v.facility }); if (p.fac === UNKNOWN) p.fac = v.facility; add(p.actD, v.day); }
+    const kKeys = new Set(people.keys());
+    for (const u of model.uriage || []) {
+      const hit = matchName(looseKey(u.name), kKeys);
+      const p = hit ? people.get(hit) : person('sheet:' + looseKey(u.name), { key: u.userKey, name: u.name, fac: baseFacility(u.base, model.facilities) || UNKNOWN });
+      p.sheetName = u.name;
+      if (p.fac === UNKNOWN) p.fac = baseFacility(u.base, model.facilities) || UNKNOWN;
+      for (const d in u.days) if (+d <= upTo) p.sheetD[d] = (p.sheetD[d] || 0) + u.days[d];
+      Object.assign(p.notes, u.notes);
+    }
+    const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+    const rows = [];
+    for (const p of people.values()) {
+      if (p.fac !== facility) continue;
+      const days = new Set([...Object.keys(p.planD), ...Object.keys(p.actD), ...Object.keys(p.sheetD)].map(Number));
+      const diffDays = [];
+      for (const d of [...days].sort((a, b) => a - b)) {
+        const x = { day: d, plan: p.planD[d] || 0, actual: p.actD[d] || 0, sheet: p.sheetD[d] || 0 };
+        const vals = [x.plan].concat(hasActual ? [x.actual] : [], hasSheet ? [x.sheet] : []);
+        if (vals.some(v => v !== vals[0])) { if (p.notes[d]) x.note = p.notes[d]; diffDays.push(x); }
+      }
+      const row = { key: p.key, name: p.name, sheetName: p.sheetName, kaipokeName: p.kaipokeName, fac: p.fac,
+        plan: sum(p.planD), actual: sum(p.actD), sheet: sum(p.sheetD), diffDays, ok: diffDays.length === 0,
+        where: !p.kaipokeName ? 'シートだけ' : (hasSheet && !p.sheetName ? 'カイポケだけ' : ''),
+        renamed: !!(p.sheetName && p.kaipokeName && normName(p.sheetName) !== normName(p.kaipokeName)) };
+      if (row.plan + row.actual + row.sheet === 0) continue;
+      rows.push(row);
+    }
+    const gap = r => Math.max(Math.abs(r.plan - r.actual) * hasActual, Math.abs(r.actual - r.sheet) * (hasActual && hasSheet), Math.abs(r.plan - r.sheet) * hasSheet);
+    rows.sort((a, b) => a.ok - b.ok || gap(b) - gap(a) || a.name.localeCompare(b.name, 'ja'));
+    const t = k => rows.reduce((a, r) => a + r[k], 0);
+    return { rows, upTo, hasActual, hasSheet, totals: { people: rows.length, ng: rows.filter(r => !r.ok).length, plan: t('plan'), actual: t('actual'), sheet: t('sheet'), diffDays: rows.reduce((a, r) => a + r.diffDays.length, 0), renamed: rows.filter(r => r.renamed).length, onlyK: rows.filter(r => r.where === 'カイポケだけ').length, onlyS: rows.filter(r => r.where === 'シートだけ').length } };
+  }
+
   // opts: tokushiji:Set(userKey), shokai:Map(userKey→回数), gensan:Map(userKey→率), upToDay:number
   function salesSummary(model, facility, s, opts) {
     opts = opts || {};
@@ -614,7 +714,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     return { users: list, days: dlist, totals };
   }
 
-  return { inTokushiji, fileMonth, parseCsv, normName, toMin, readRecords, buildModel, findOverlaps, guessFacility, assignLanes, inferMonths, shortService, careSheet,
+  return { readUriageRows: (rows, fileName) => { const hi = rows.slice(0, 8).findIndex(r => r.some(x => String(x).trim() === '氏名') && r.some(x => String(x).trim() === '拠点')); if (hi < 0) throw new Error(fileName + '：売上管理シートの形ではありません'); return readUriage(rows.map(r => r.map(x => String(x))), hi, fileName); }, reconcile, looseKey, inTokushiji, fileMonth, parseCsv, normName, toMin, readRecords, buildModel, findOverlaps, guessFacility, assignLanes, inferMonths, shortService, careSheet,
     kaigoCategory, kangoCategory, defaultSettings, kaigoAmount, salesSummary, KAIGO_CATS, KANGO_CATS, UNITS, UNKNOWN, UNSET };
 });
 
@@ -678,14 +778,14 @@ function rebuild(){
 function renderFiles(){
   const opts = facCandidates();
   $('upload').classList.toggle('compact', state.files.length > 0);
-  const nk = state.files.filter(f=>f.kind==='kango').length, ns = state.files.filter(f=>f.kind==='shiji').length, nc = state.files.length - nk - ns;
+  const nk = state.files.filter(f=>f.kind==='kango').length, ns = state.files.filter(f=>f.kind==='shiji').length, nc = state.files.filter(f=>f.kind==='kaigo').length, nj = state.files.filter(f=>f.kind==='jisseki').length, nu = state.files.filter(f=>f.kind==='uriage').length;
   const mon = state.model && state.model.month ? +state.model.month.slice(5) + '月分' : '';
-  $('hstat').innerHTML = state.files.length ? `${mon&&!GAS?`<span>📅 ${mon}</span>`:''}<span>🟦 看護 ${nk}ファイル</span><span>🟧 介護 ${nc}ファイル</span>${ns?`<span>📋 指示 ${ns}ファイル</span>`:''}` : '';
+  $('hstat').innerHTML = state.files.length ? `${mon&&!GAS?`<span>📅 ${mon}</span>`:''}<span>🟦 看護 ${nk}ファイル</span><span>🟧 介護 ${nc}ファイル</span>${ns?`<span>📋 指示 ${ns}ファイル</span>`:''}${nj?`<span>✅ 実績 ${nj}</span>`:''}${nu?`<span>📒 シート ${nu}</span>`:''}` : '';
   const needOpen = state.files.some(f => f.kind === 'kaigo' && !f.facility);
   if (needOpen) state.filesOpen = true;
   $('files').innerHTML = !state.files.length ? '' : `<details id="fdet" ${state.filesOpen?'open':''}><summary>📄 読み込んだファイル（${state.files.length}）${needOpen?'<span class="need">施設を選んでください</span>':''}</summary><div class="flist">` + state.files.map((f,i) => `
     <div class="chip ${f.kind}">
-      <b>${f.kind==='kango'?'🟦 看護':f.kind==='shiji'?'📋 指示':'🟧 介護'}</b> ${esc(f.name)}（${f.records.length}件）${GAS?(f.saved?`<span class="saved" title="${esc(f.savedBy||'')} ${esc(f.savedAt||'')}">✓ 保存済み</span>`:(f.kind==='kaigo'&&!f.facility?'<span class="need">施設を選ぶと保存</span>':'<span class="need">保存中…</span>')):''}
+      <b>${{kango:'🟦 看護',shiji:'📋 指示',jisseki:'✅ 看護実績',uriage:'📒 売上管理シート'}[f.kind]||'🟧 介護'}</b> ${esc(f.name)}（${f.records.length}件）${GAS?(f.saved?`<span class="saved" title="${esc(f.savedBy||'')} ${esc(f.savedAt||'')}">✓ 保存済み</span>`:(f.auto?'<span class="saved" style="background:#eef4ff;color:#1d4ed8">🔗 シートから自動</span>':f.temp?'<span class="need">今回だけ</span>':f.kind==='kaigo'&&!f.facility?'<span class="need">施設を選ぶと保存</span>':'<span class="need">保存中…</span>')):''}
       ${f.kind==='kaigo' ? `施設：<input class="facsel" data-i="${i}" list="faclist" value="${esc(f.facility||'')}" placeholder="選ぶ／入力" size="9">` : ''}
       <button class="x" data-del="${i}" title="${GAS&&f.saved?'保存から削除':'外す'}">${GAS&&f.saved&&state.delArm===i?'削除する？':'✕'}</button>
     </div>`).join('') + `</div></details><datalist id="faclist">${opts.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`;
@@ -747,7 +847,7 @@ function renderBoard(){
         ${dayPairs.length ? `<span class="badge red">⚠ かぶり ${dayPairs.length}件</span>` : `<span class="badge ok">✓ かぶりなし</span>`}
       </div>
       <div class="row2 noprint">
-        <span class="seg"><button data-view="board" class="${state.view==='board'?'on':''}">📊 利用者ごと</button><button data-view="care" class="${state.view==='care'?'on':''}">📋 ケア割表</button><button data-view="sales" class="${state.view==='sales'?'on':''}">💴 売上</button></span>
+        <span class="seg"><button data-view="board" class="${state.view==='board'?'on':''}">📊 利用者ごと</button><button data-view="care" class="${state.view==='care'?'on':''}">📋 ケア割表</button><button data-view="sales" class="${state.view==='sales'?'on':''}">💴 売上</button><button data-view="rec" class="${state.view==='rec'?'on':''}">🔍 突き合わせ</button></span>
         <select id="staffsel"><option value="">👤 職員で絞る（全員）</option>${staffHere.map(s=>`<option value="${esc(s)}" ${s===state.staff?'selected':''}>${esc(s)}</option>`).join('')}</select>
         <span class="legend"><span><i style="background:var(--kango)"></i>看護</span><span><i style="background:var(--kaigo)"></i>介護</span><span><i style="background:var(--shogai)"></i>障害</span><span><i style="background:var(--red)"></i>かぶり</span></span>
         <span class="sp"></span>
@@ -764,6 +864,10 @@ function renderBoard(){
   if (kaigoInFac && !kaigoToday){
     const lastK = Math.max(...facVisits.filter(v => v.kind === 'kaigo').map(v => v.day));
     html += `<div class="card warn">⚠ この日の<b>介護の予定</b>はカイポケにまだ入っていません（介護は${lastK}日まで）。看護の予定だけを表示しています。</div>`;
+  }
+  if (state.view === 'rec'){
+    html += recView();
+    el.innerHTML = html; return;
   }
   if (state.view === 'sales'){
     html += salesView();
@@ -901,6 +1005,53 @@ const num = n => Math.round(n).toLocaleString('ja-JP');
 const GEN_LABEL = { '0.1':'10%減算', '0.12':'12%減算', '0':'減算なし' };
 state.salesRange = state.salesRange || 'today';
 
+// ===== 🔍 突き合わせ（カイポケ予定・カイポケ実績・売上管理シート）=====
+function recView(){
+  const m = state.model, f = state.fac;
+  const now = new Date(), cur = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  const last = m.month ? new Date(+m.month.slice(0,4), +m.month.slice(5,7), 0).getDate() : 31;
+  const yday = m.month === cur ? Math.max(1, now.getDate() - 1) : last;
+  state.recRange = state.recRange || 'yday';
+  const upTo = state.recRange === 'yday' ? yday : last;
+  const r = C.reconcile(m, f, { upToDay: upTo }), t = r.totals;
+  const srcs = ['予定'].concat(r.hasActual ? ['実績'] : [], r.hasSheet ? ['売上管理シート'] : []);
+  let h = `<div class="card sales"><div class="srow"><h3>🔍 ${esc(f)}　訪問看護の回数の突き合わせ（1〜${upTo}日）</h3><span class="sp"></span>
+    <span class="seg noprint"><button data-rrange="yday" class="${state.recRange==='yday'?'on':''}">${m.month===cur?'昨日まで':'月末まで'}（${yday}日）</button>${yday!==last?`<button data-rrange="month" class="${state.recRange==='month'?'on':''}">月末まで</button>`:''}</span></div>`;
+  if (GAS) { const urls = (store.__uriage && store.__uriage.urls) || [];
+    h += `<details class="noprint" ${urls.length?'':'open'} style="margin:8px 0"><summary><b>🔗 売上管理シート（看護）のURL</b>　${urls.length?`${urls.length}件 登録済み・開くたびに自動で読みます`:'未登録'}</summary>
+      <div style="display:flex;gap:8px;margin-top:6px"><textarea id="urlbox" rows="3" style="flex:1;font-size:12px" placeholder="スプレッドシートのURLを1行に1つ（ステーションごと）">${esc(urls.join('\n'))}</textarea><button id="urlsave" class="primary" style="padding:8px 14px">保存</button></div>
+      ${(state.uriageErr||[]).map(e=>`<div class="need" style="margin-top:4px">${esc(e)}</div>`).join('')}
+      <div class="mnote">月のシート名は「11月_宮地」のように「◯月」で始まるもの。上の行の年が合うものだけ読みます。</div></details>`; }
+  if (!r.hasActual || !r.hasSheet) h += `<div class="warn" style="margin:8px 0;padding:8px 12px">${!r.hasActual?'📥 カイポケの<b>実績</b>CSV（看護スケジュール表で「実績」を選んで出力）を入れると、予定と実績のちがいも出ます。<br>':''}${!r.hasSheet?'📥 <b>売上管理シート</b>（看護）をCSVで入れると、シートとのちがいも出ます（スプレッドシートの ファイル → ダウンロード → CSV、施設のシートごと）。':''}</div>`;
+  const card = (lab, val, sub, cls) => `<div class="kpi ${cls||''}"><div class="kl">${lab}</div><div class="kv">${val}</div>${sub?`<div class="ks">${sub}</div>`:''}</div>`;
+  h += `<div class="kpis">
+    ${card('合わない人', `${t.ng}人`, `${t.people}人中・のべ${t.diffDays}日`, t.ng ? 'big ng' : 'big okc')}
+    ${card('🟦 予定（カイポケ）', num(t.plan)+'回')}
+    ${r.hasActual ? card('✅ 実績（カイポケ）', num(t.actual)+'回', `予定との差 ${sgn(t.actual - t.plan)}`) : ''}
+    ${r.hasSheet ? card('📒 売上管理シート', num(t.sheet)+'回', `${r.hasActual?'実績':'予定'}との差 ${sgn(t.sheet - (r.hasActual?t.actual:t.plan))}`) : ''}
+    ${r.hasSheet ? card('名前・行', `${t.onlyK + t.onlyS}人`, `シートにない ${t.onlyK}・カイポケにない ${t.onlyS}・書き方ちがい ${t.renamed}`) : ''}
+  </div></div>`;
+  state.recFilter = state.recFilter || 'ng';
+  const rows = r.rows.filter(x => state.recFilter === 'all' || !x.ok);
+  const why = x => x.where === 'カイポケだけ' ? ['シートに行がない','bad'] : x.where === 'シートだけ' ? ['カイポケにない','bad']
+    : r.hasActual && x.diffDays.some(d => d.plan !== d.actual) && !(r.hasSheet && x.diffDays.some(d => d.actual !== d.sheet)) ? ['予定と実績がちがう','mid']
+    : r.hasActual && x.diffDays.some(d => d.plan !== d.actual) ? ['予定・実績・シートがちがう','bad']
+    : ['シートの回数がちがう','bad'];
+  const cell = (v, base) => `<td class="${v!==base?'ngc':''}">${v}</td>`;
+  h += `<div class="card"><div class="srow"><h3>👤 利用者ごと（${srcs.join('・')}）</h3><span class="sp"></span>
+    <span class="seg noprint"><button data-rfilter="ng" class="${state.recFilter==='ng'?'on':''}">合わない人だけ（${t.ng}）</button><button data-rfilter="all" class="${state.recFilter==='all'?'on':''}">全員（${t.people}）</button></span></div>
+    ${!rows.length ? '<div class="empty" style="padding:18px">✅ すべて合っています</div>' : `<div class="scroll"><table class="list num rec"><tr><th class="l">利用者</th><th>予定</th>${r.hasActual?'<th>実績</th>':''}${r.hasSheet?'<th>シート</th>':''}<th class="l">どこがちがう</th><th class="l">ちがう日（${srcs.map(x=>x[0]==='売'?'シ':x[0]).join('/')}）</th></tr>
+    ${rows.map(x => { const base = r.hasActual ? x.actual : x.plan, w = x.ok ? ['OK','okc'] : why(x);
+      return `<tr><td class="l"><b>${esc(x.name.replace(/[\s　]+/g,''))}</b>${x.renamed?`<div class="mnote">シートでは「${esc(x.sheetName.replace(/[\s　]+/g,''))}」</div>`:''}</td>
+      ${cell(x.plan, base)}${r.hasActual?cell(x.actual, base):''}${r.hasSheet?cell(x.sheet, base):''}
+      <td class="l"><span class="pill ${w[1]}">${w[0]}</span></td>
+      <td class="l days">${x.diffDays.slice(0, 31).map(d => `<span class="dd">${d.day}日 <b>${d.plan}</b>${r.hasActual?`/<b>${d.actual}</b>`:''}${r.hasSheet?`/<b>${d.sheet}</b>`:''}${d.note?`<i>${esc(d.note)}</i>`:''}</span>`).join('')}</td></tr>`; }).join('')}
+    </table></div>`}
+    <div class="mnote" style="margin-top:8px">名前の書き方が少しちがう人（旧字・1文字ちがい・名字だけ）は同じ人として比べています。カイポケの実績は看護スケジュール表（実績・月間スケジュールから取得）です。</div></div>`;
+  return h;
+}
+const sgn = n => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n).toLocaleString('ja-JP') + '回';
+
 function salesView(){
   const m = state.model, f = state.fac, fs = facStore(f), st = fs.settings;
   const now = new Date(), cur = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
@@ -966,6 +1117,9 @@ function salesView(){
 }
 
 $('board').addEventListener('click', e => {
+  if (e.target.id === 'urlsave') { saveUriageUrls($('urlbox').value); return; }
+  const rr = e.target.closest('[data-rrange]'); if (rr){ state.recRange = rr.dataset.rrange; renderBoard(); return; }
+  const rf = e.target.closest('[data-rfilter]'); if (rf){ state.recFilter = rf.dataset.rfilter; renderBoard(); return; }
   const rb = e.target.closest('[data-range]'); if (rb){ state.salesRange = rb.dataset.range; renderBoard(); return; }
   const cb = e.target.closest('[data-copy]');
   if (cb){ const txt = cb.dataset.copy; const done = () => { const o = cb.textContent; cb.textContent = '✓ コピーしました'; setTimeout(()=>cb.textContent=o, 1500); };
@@ -994,6 +1148,7 @@ function toast(msg, bad){
 function fileKey(f){
   if (f.kind === 'kango') return 'kango';
   if (f.kind === 'shiji') return 'shiji';
+  if (f.kind === 'jisseki') return 'jisseki';
   const sho = f.records.length && f.records.every(r => r.type === '障害');
   return (sho ? 'shogai:' : 'kaigo:') + f.facility;
 }
@@ -1007,6 +1162,7 @@ function pickMonth(f){
 }
 async function gasPersist(f){
   if (f.kind === 'kaigo' && !f.facility) { f.saved = false; return; }
+  if (f.kind === 'uriage') { f.saved = false; f.temp = true; toast('売上管理シートは今回だけ使います（突き合わせ画面でURLを登録すると、毎回自動で読みます）'); return; }
   const month = pickMonth(f), key = fileKey(f), isShiji = f.kind === 'shiji';
   if (f.saved && f.key && (f.key !== key || f.month !== month)) await gasCall('remove', { month: f.month, key: f.key });
   const dup = state.files.findIndex(x => x !== f && x.saved && x.key === key && x.month === month);
@@ -1026,7 +1182,27 @@ async function gasLoad(month){
   state.files = r.files.map(f => ({ name: f.fileName, size: 0, kind: f.kind, facility: f.facility || null, month: f.month || r.month, key: f.key, saved: true, savedBy: f.savedBy, savedAt: f.savedAt,
     records: f.records.map(x => Object.assign(x, { userKey: C.normName(x.user) })) }));
   store = Object.assign({}, store, r.settings || {});
+  await gasUriage();
   rebuild(); renderMonthSel();
+}
+async function gasUriage(){
+  state.files = state.files.filter(f => !f.auto);
+  const urls = (store.__uriage && store.__uriage.urls) || [];
+  if (!urls.length || !state.month) return;
+  try {
+    const r = await gasCall('uriage', { month: state.month });
+    for (const sh of r.sheets) {
+      try { const u = C.readUriageRows(sh.rows, sh.name); state.files.push({ name: sh.name, size: 0, kind: 'uriage', records: u.records, month: u.month, auto: true }); } catch (e) {}
+    }
+    state.uriageErr = r.errors || [];
+  } catch (e) {}
+}
+async function saveUriageUrls(text){
+  const urls = text.split(/\s+/).map(x => x.trim()).filter(Boolean);
+  await gasCall('saveSettings', { facility: '__uriage', data: { urls } });
+  store.__uriage = { urls };
+  await gasUriage(); rebuild();
+  toast(`売上管理シートを ${state.files.filter(f => f.auto).length} 枚 読みました`);
 }
 function renderMonthSel(){
   if (!state.months || !state.months.length) return;
