@@ -338,6 +338,11 @@ main{padding:18px 26px 40px;max-width:1500px}
     const cBase = ci('拠点'), cName = ci('氏名'), cKind = ci('指示書'), cTot = ci('延べ回数');
     const dayCol = [];
     dayRow.forEach((v, i) => { const d = String(v).trim(); if (/^\d{1,2}$/.test(d) && i > cName && (cTot < 0 || i < cTot)) dayCol.push([+d, i]); });
+    // 利用者の表は、下の集計（売り上げ・訪問件数・単価・合計）の手前まで
+    const STOP = /^(売り上げ|売上|訪問件数|単価|合計)$/;
+    let end = rows.length;
+    for (let r = hi + 1; r < rows.length; r++) if (STOP.test((rows[r][cBase] || '').trim())) { end = r; break; }
+    rows = rows.slice(0, end);
     const bases = new Set();
     for (let r = hi + 1; r < rows.length; r++) { const b = (rows[r][cBase] || '').trim(); if (b && (rows[r][cName] || '').trim()) bases.add(b); }
     const records = []; let cur = null;
@@ -445,7 +450,12 @@ main{padding:18px 26px 40px;max-width:1500px}
       orders.get(r.userKey).push(r);
     }
     const actual = [], uriage = [];
-    for (const f of files) if (f.kind === 'uriage') for (const r of f.records) uriage.push(r);
+    const useen = new Set(); let uriageDup = 0;
+    for (const f of files) if (f.kind === 'uriage') for (const r of f.records) {
+      const k = r.base + '|' + r.userKey;
+      if (useen.has(k)) { uriageDup++; continue; }   // 同じシートを2回入れたとき
+      useen.add(k); uriage.push(r);
+    }
     for (const f of files) if (f.kind === 'jisseki') for (const r of f.records) actual.push(Object.assign({}, r, { facility: userFac.get(r.userKey) || UNKNOWN }));
     for (const f of files) if (f.kind !== 'shiji' && f.kind !== 'jisseki' && f.kind !== 'uriage') for (const r of f.records) {
       const key = [r.kind, r.day, r.userKey, r.start, r.end, r.staff, r.type].join('|');
@@ -468,7 +478,7 @@ main{padding:18px 26px 40px;max-width:1500px}
     const facilities = [...new Set(visits.map(v => v.facility))].sort((a, b) => last(a) - last(b) || a.localeCompare(b, 'ja'));
     const staff = [...new Set(visits.map(v => v.staff).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
     const days = [...new Set(visits.map(v => v.day))].sort((a, b) => a - b);
-    return { facilities, visits, overlaps, staff, days, mixedMonths, month, orders, actual, uriage };
+    return { facilities, visits, overlaps, staff, days, mixedMonths, month, orders, actual, uriage, uriageDup };
   }
 
   function guessFacility(fileName, candidates) {
@@ -1022,6 +1032,8 @@ function recView(){
       <div style="display:flex;gap:8px;margin-top:6px"><textarea id="urlbox" rows="3" style="flex:1;font-size:12px" placeholder="スプレッドシートのURLを1行に1つ（ステーションごと）">${esc(urls.join('\n'))}</textarea><button id="urlsave" class="primary" style="padding:8px 14px">保存</button></div>
       ${(state.uriageErr||[]).map(e=>`<div class="need" style="margin-top:4px">${esc(e)}</div>`).join('')}
       <div class="mnote">月のシート名は「11月_宮地」のように「◯月」で始まるもの。上の行の年が合うものだけ読みます。</div></details>`; }
+  if (m.uriageDup) h += `<div class="warn" style="margin:8px 0;padding:8px 12px">⚠ 売上管理シートで<b>同じ人が2回</b>出てきました（${m.uriageDup}人）。同じシートのCSVを2つ入れていませんか？　二重には数えていません。</div>`;
+  if (!state.files.some(x => x.kind === 'kaigo')) h += `<div class="warn" style="margin:8px 0;padding:8px 12px">⚠ <b>介護のシフト表</b>が入っていないので、看護の利用者を施設に分けられません（全員「施設不明」になります）。訪問介護シフト_◯◯.csv も一緒に入れてください。</div>`;
   if (!r.hasActual || !r.hasSheet) h += `<div class="warn" style="margin:8px 0;padding:8px 12px">${!r.hasActual?'📥 カイポケの<b>実績</b>CSV（看護スケジュール表で「実績」を選んで出力）を入れると、予定と実績のちがいも出ます。<br>':''}${!r.hasSheet?'📥 <b>売上管理シート</b>（看護）をCSVで入れると、シートとのちがいも出ます（スプレッドシートの ファイル → ダウンロード → CSV、施設のシートごと）。':''}</div>`;
   const card = (lab, val, sub, cls) => `<div class="kpi ${cls||''}"><div class="kl">${lab}</div><div class="kv">${val}</div>${sub?`<div class="ks">${sub}</div>`:''}</div>`;
   h += `<div class="kpis">
