@@ -449,7 +449,7 @@ main{padding:18px 26px 40px;max-width:1500px}
   function buildModel(files) {
     const seen = new Set(), userFac = new Map(), visits = [];
     for (const f of files) if (f.kind === 'kaigo') for (const r of f.records) {
-      if (f.facility && !userFac.has(r.userKey)) userFac.set(r.userKey, f.facility);
+      if (!userFac.has(r.userKey) || (userFac.get(r.userKey) === UNSET && f.facility)) userFac.set(r.userKey, f.facility || UNSET);
     }
     let id = 0;
     const orders = new Map(), oseen = new Set();
