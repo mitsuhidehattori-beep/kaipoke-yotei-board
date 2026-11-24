@@ -810,8 +810,8 @@ function rebuild(){
   showSampleBanner();
   renderFiles();
   if (!state.files.length){ state.model = null; renderBoard(); return; }
-  applyNameFix();
-  state.model = C.buildModel(state.files, userFacMap());
+  applyNameFix(); autoResolve(); applyNameFix();
+  state.model = C.buildModel(state.files, Object.assign({}, state.autoFac || {}, userFacMap()));
   renderFiles();
   const m = state.model;
   if (!m.facilities.includes(state.fac)) state.fac = m.facilities[0] || null;
@@ -829,7 +829,7 @@ function renderFiles(){
   const nk = state.files.filter(f=>f.kind==='kango').length, ns = state.files.filter(f=>f.kind==='shiji').length, nc = state.files.filter(f=>f.kind==='kaigo').length, nj = state.files.filter(f=>f.kind==='jisseki').length, nu = state.files.filter(f=>f.kind==='uriage').length;
   const mon = state.model && state.model.month ? +state.model.month.slice(5) + '月分' : '';
   $('hstat').innerHTML = state.files.length ? `${mon&&!GAS?`<span>📅 ${mon}</span>`:''}<span>🟦 看護 ${nk}ファイル</span><span>🟧 介護 ${nc}ファイル</span>${ns?`<span>📋 指示 ${ns}ファイル</span>`:''}${nj?`<span>✅ 実績 ${nj}</span>`:''}${nu?`<span>📒 シート ${nu}</span>`:''}` : '';
-  const needOpen = state.files.some(f => f.kind === 'kaigo' && !f.facility);
+  const needOpen = state.files.some(f => f.kind === 'kaigo' && !f.facility) && !!state.model && state.model.visits.some(v => v.facility === C.UNSET);
   if (needOpen) state.filesOpen = true;
   $('files').innerHTML = !state.files.length ? '' : `<details id="fdet" ${state.filesOpen?'open':''}><summary>📄 読み込んだファイル（${state.files.length}）${needOpen?'<span class="need">施設を選んでください</span>':''}</summary><div class="flist">` + state.files.map((f,i) => `
     <div class="chip ${f.kind}">
@@ -1200,7 +1200,7 @@ function fileKey(f){
   if (f.kind === 'shiji') return 'shiji';
   if (f.kind === 'jisseki') return 'jisseki';
   const sho = f.records.length && f.records.every(r => r.type === '障害');
-  return (sho ? 'shogai:' : 'kaigo:') + f.facility;
+  return (sho ? 'shogai:' : 'kaigo:') + (f.facility || '@' + ((f.records[0] && f.records[0].office) || f.name));
 }
 function pickMonth(f){
   if (f.month) return f.month;
@@ -1211,7 +1211,6 @@ function pickMonth(f){
   const past = ms.filter(m => m <= cur); return past.length ? past[past.length - 1] : (ms[0] || cur);
 }
 async function gasPersist(f){
-  if (f.kind === 'kaigo' && !f.facility) { f.saved = false; return; }
   if (f.kind === 'uriage') { f.saved = false; f.temp = true; toast('売上管理シートは今回だけ使います（突き合わせ画面でURLを登録すると、毎回自動で読みます）'); return; }
   const month = pickMonth(f), key = fileKey(f), isShiji = f.kind === 'shiji';
   if (f.saved && f.key && (f.key !== key || f.month !== month)) await gasCall('remove', { month: f.month, key: f.key });
@@ -1232,6 +1231,7 @@ async function gasLoad(month){
   state.files = r.files.map(f => ({ name: f.fileName, size: 0, kind: f.kind, facility: f.facility || null, month: f.month || r.month, key: f.key, saved: true, savedBy: f.savedBy, savedAt: f.savedAt,
     records: f.records.map(x => Object.assign(x, { userKey: C.normName(x.user) })) }));
   store = Object.assign({}, store, r.settings || {});
+  await gasMaster();
   await gasUriage();
   rebuild(); renderMonthSel();
 }
@@ -1287,9 +1287,9 @@ async function gasBoot(){
     return;
   }
   $('upload').style.display = '';
-  state.months = b.months || [];
+  state.months = b.months || []; state.admin = !!b.admin;
   if (state.months.length) await gasLoad(state.months[0]);
-  else { renderBoard(); toast('まだ保存されたデータはありません。CSVを入れると保存されます'); }
+  else { await gasMaster(); renderBoard(); toast('まだ保存されたデータはありません。CSVを入れると保存されます'); }
 }
 
 // ===== 見本データ（架空）=====
@@ -1358,23 +1358,52 @@ addFiles = async function(list){ state.files = state.files.filter(f => !f.sample
 
 // ===== 施設不明の人に、手で施設を付ける（このパソコンのブラウザに覚える）=====
 const UF_KEY = 'kyb-userfac';
-function userFacMap(){ try { return JSON.parse(localStorage.getItem(UF_KEY) || '{}') || {}; } catch(e){ return state.ufMem || (state.ufMem = {}); } }
-function saveUserFac(map){ try { localStorage.setItem(UF_KEY, JSON.stringify(map)); } catch(e){ state.ufMem = map; } }
+function localFac(){ try { return JSON.parse(localStorage.getItem(UF_KEY) || '{}') || {}; } catch(e){ return state.ufMem || (state.ufMem = {}); } }
+const M0 = () => state.master || (state.master = { auto:{}, names:{}, manual:{}, fix:{} });
+// GAS版：限度額表から自動（全員共通）＋手入力（全員共通）。公開版：このパソコンが覚えたもの
+function userFacMap(){ return GAS ? Object.assign({}, M0().auto, M0().manual) : localFac(); }
+function manualFacMap(){ return GAS ? Object.assign({}, M0().manual) : localFac(); }
+function saveUserFac(map){
+  if (!GAS){ try { localStorage.setItem(UF_KEY, JSON.stringify(map)); } catch(e){ state.ufMem = map; } return; }
+  const prev = userFacMap(), man = M0().manual, entries = [];
+  for (const k in map) if (map[k] !== prev[k]) { entries.push({ key:k, facility:map[k] }); man[k] = map[k]; }
+  for (const k in man) if (!(k in map)) { entries.push({ key:k, facility:'' }); delete man[k]; }
+  if (entries.length) gasCall('setOverride', { entries }).then(() => toast('施設を保存しました（全員に反映）'));
+}
+// 名前の候補（「_」の字を当てるため）：GAS版は限度額表の名前、公開版は読み込んだ「施設の付け方.csv」の名前
+const KN_KEY = 'kyb-names';
+function knownNames(){ if (GAS) return Object.assign({}, M0().names); try { return JSON.parse(localStorage.getItem(KN_KEY) || '{}') || {}; } catch(e){ return state.knMem || (state.knMem = {}); } }
+function saveKnownNames(m){ try { localStorage.setItem(KN_KEY, JSON.stringify(m)); } catch(e){ state.knMem = m; } }
+// 「_」を含む名前を、候補の中から1人だけ当てはまる人に自動でそろえる（施設も）
+function autoResolve(){
+  const names = knownNames(), fac = userFacMap(), fix = nameFixMap(), keys = Object.keys(names);
+  state.autoFix = {}; state.autoFac = {};
+  const seen = new Set();
+  for (const f of state.files) for (const r of f.records || []) for (const x of [r.user0 || r.user, r.staff0 || r.staff]) {
+    const k = C.normName(x || ''); if (!k || seen.has(k) || !/[_＿]/.test(k)) continue; seen.add(k);
+    const re = new RegExp('^' + k.split(/[_＿]/).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.') + '$');
+    const hit = keys.filter(c => c.length === k.length && re.test(c));
+    if (hit.length !== 1) continue;
+    if (!fix[k]) state.autoFix[k] = names[hit[0]];
+    if (!fac[k] && fac[hit[0]]) state.autoFac[k] = fac[hit[0]];
+  }
+}
 function unknownCard(m){
   const map = userFacMap();
   const isOpen = state.fac === C.UNKNOWN || state.fac === C.UNSET;
   const unknown = [...new Map(m.visits.filter(v => v.facility === state.fac && isOpen).map(v => [v.userKey, v.user])).entries()].sort((a,b) => a[1].localeCompare(b[1],'ja'));
-  const manual = Object.entries(map).filter(([k,f]) => f && m.visits.some(v => v.userKey === k));
+  const manual = Object.entries(manualFacMap()).filter(([k,f]) => f && m.visits.some(v => v.userKey === k));
   if (!isOpen && !manual.length) return '';
   const opts = `<datalist id="ufaclist">${facCandidates().map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`;
   let h = `<div class="card noprint ufcard">${opts}`;
   if (isOpen && unknown.length){
     h += `<h3>🏠 施設が分からない利用者（${unknown.length}人）</h3>
-      <p>${state.fac === C.UNKNOWN ? '介護のCSVに名前がない人（看護だけの人など）です。' : '介護のファイルに施設が付いていない人です。1つの事業所で複数の施設を回っているときは、ここで1人ずつ施設を入れてください。'}施設を入れると、そのタブに移ります。<b>このパソコンが覚えるので、次からは自動</b>で同じ施設に入ります。</p>
+      <p>${state.fac === C.UNKNOWN ? '介護のCSVに名前がない人（看護だけの人など）です。' : '介護のファイルに施設が付いていない人です。1つの事業所で複数の施設を回っているときは、ここで1人ずつ施設を入れてください。'}施設を入れると、そのタブに移ります。${GAS ? '<b>入れた施設は全員で共通</b>です。限度額表に名前がある人は自動で入るので、ここに出るのは限度額表にない人だけです。' : '<b>このパソコンが覚えるので、次からは自動</b>で同じ施設に入ります。'}</p>
       <div class="ufall">全員まとめて：<input id="ufallin" list="ufaclist" placeholder="例：中野"><button type="button" id="ufallbtn">全員に付ける</button></div>
       <div class="ufgrid">${unknown.map(([k,n]) => `<div class="ufrow"><b>${esc(n)}</b><input class="ufin" data-k="${esc(k)}" list="ufaclist" placeholder="施設を入力"></div>`).join('')}</div>`;
   }
-  if (Object.keys(map).length) h += `<div class="ufall" style="margin-top:10px"><button type="button" id="ufexport">💾 施設の付け方・名前の直しをファイルに保存</button><span style="font-size:12px;color:var(--sub)">ほかのパソコンでは、このファイルをCSVと一緒にボードに入れると同じ施設に分かれます</span></div>`;
+  if (GAS) h += `<div class="ufall" style="margin-top:10px;font-size:12px;color:var(--sub)">📋 限度額表から自動で振り分け中（${Object.keys(M0().auto).length}人${M0().at ? '・' + esc(String(M0().at).slice(0,16).replace('T',' ')) + ' 読み込み' : ''}）${state.admin ? '<button type="button" id="mrefresh" style="margin-left:8px">🔄 限度額表から読み直す</button>' : ''}</div>`;
+  if (!GAS && Object.keys(map).length) h += `<div class="ufall" style="margin-top:10px"><button type="button" id="ufexport">💾 施設の付け方・名前の直しをファイルに保存</button><span style="font-size:12px;color:var(--sub)">ほかのパソコンでは、このファイルをCSVと一緒にボードに入れると同じ施設に分かれます</span></div>`;
   if (manual.length) h += `<details class="ufman"><summary>✋ 手で施設を付けた人（${manual.length}人）— 外すときはここ</summary>${manual.map(([k,f]) => { const v = m.visits.find(x => x.userKey === k); return `<span class="chip2">${esc(v ? v.user : k)} → ${esc(f)} <a data-ufdel="${esc(k)}" title="外す">×</a></span>`; }).join('')}</details>`;
   return h + `</div>`;
 }
@@ -1394,15 +1423,16 @@ document.addEventListener('click', e => {
 });
 
 function importUserFac(text){
-  const rows = C.parseCsv(text).slice(1), map = userFacMap(), fix = nameFixMap(); let n = 0;
+  const rows = C.parseCsv(text).slice(1), map = userFacMap(), fix = nameFixMap(), kn = knownNames(); let n = 0;
   for (const r of rows){
     const u = C.normName(r[0]), f = (r[1]||'').trim(), c = (r[2]||'').trim();
     if (!u) continue;
     if (f) map[u] = f;
     if (c) fix[u] = c;
     if (f || c) n++;
+    if (f) kn[u] = c || String(r[0]).trim();
   }
-  saveUserFac(map); saveNameFix(fix); toast('施設の付け方・名前の直しを読み込みました（' + n + '人）');
+  saveUserFac(map); saveNameFix(fix); saveKnownNames(kn); toast('施設の付け方・名前の直しを読み込みました（' + n + '人）');
 }
 function exportUserFac(){
   const map = userFacMap(), fix = nameFixMap(), names = new Map();
@@ -1414,13 +1444,25 @@ function exportUserFac(){
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '施設の付け方.csv'; document.body.appendChild(a); a.click(); a.remove();
 }
 document.addEventListener('click', e => { if (e.target.id === 'ufexport' || e.target.id === 'nfexport') exportUserFac(); });
+document.addEventListener('click', async e => {
+  if (e.target.id !== 'mrefresh') return;
+  e.target.disabled = true; e.target.textContent = '読み込み中…（1分ほど）';
+  try { const r = await gasCall('refreshMaster', {}); toast(r.message, !!(r.errors && r.errors.length)); await gasMaster(); rebuild(); } catch (err) { e.target.disabled = false; }
+});
+async function gasMaster(){ try { state.master = await gasCall('master', {}); } catch (e) {} }
 
 // ===== 名前の直し（カイポケが「_」で出す字を、正しい字で表示する）=====
 const NF_KEY = 'kyb-namefix';
-function nameFixMap(){ try { return JSON.parse(localStorage.getItem(NF_KEY) || '{}') || {}; } catch(e){ return state.nfMem || (state.nfMem = {}); } }
-function saveNameFix(map){ try { localStorage.setItem(NF_KEY, JSON.stringify(map)); } catch(e){ state.nfMem = map; } }
+function nameFixMap(){ if (GAS) return Object.assign({}, M0().fix); try { return JSON.parse(localStorage.getItem(NF_KEY) || '{}') || {}; } catch(e){ return state.nfMem || (state.nfMem = {}); } }
+function saveNameFix(map){
+  if (!GAS){ try { localStorage.setItem(NF_KEY, JSON.stringify(map)); } catch(e){ state.nfMem = map; } return; }
+  const fx = M0().fix, entries = [];
+  for (const k in map) if (map[k] !== fx[k]) { entries.push({ key:k, name:map[k] }); fx[k] = map[k]; }
+  for (const k in fx) if (!(k in map)) { entries.push({ key:k, name:'' }); delete fx[k]; }
+  if (entries.length) gasCall('setOverride', { entries }).then(() => toast('名前を保存しました（全員に反映）'));
+}
 function applyNameFix(){
-  const fix = nameFixMap();
+  const fix = Object.assign({}, state.autoFix || {}, nameFixMap());
   for (const f of state.files) for (const r of f.records || []){
     if ('user' in r){ if (r.user0 === undefined) r.user0 = r.user; r.user = fix[C.normName(r.user0)] || r.user0; }
     if ('staff' in r){ if (r.staff0 === undefined) r.staff0 = r.staff; r.staff = fix[C.normName(r.staff0)] || r.staff0; }
@@ -1431,11 +1473,11 @@ function nameFixCard(m){
   for (const f of state.files) for (const r of f.records || []) for (const x of [r.user0, r.staff0]) if (x && /[_＿]/.test(x)) list.set(C.normName(x), x);
   if (!list.size) return '';
   const rows = [...list.entries()].sort((a,b) => a[1].localeCompare(b[1],'ja'));
-  const todo = rows.filter(([k]) => !fix[k]).length;
+  const af = state.autoFix || {}, todo = rows.filter(([k]) => !fix[k] && !af[k]).length;
   return `<details class="card noprint ufcard nfcard" ${todo ? 'open' : ''}><summary style="cursor:pointer"><b style="color:#92400e">✏️ 名前の直し</b>　<span style="font-size:13px;color:var(--sub)">カイポケが「_」で出した字があります（${rows.length}人${todo ? '・未入力 ' + todo + '人' : '・入力済み'}）</span></summary>
-    <p style="margin:8px 0">カイポケはCSVに出せない漢字（髙・﨑など）を「_」にします。正しい名前を入れると、画面と印刷がその名前になります。<b>このパソコンが覚えます。</b></p>
-    <div class="ufgrid">${rows.map(([k,x]) => `<div class="ufrow"><b>${esc(x)}</b>→<input class="nfin" data-k="${esc(k)}" value="${esc(fix[k]||'')}" placeholder="正しい名前" style="width:120px"></div>`).join('')}</div>
-    <div class="ufall" style="margin-top:10px"><button type="button" id="nfexport">💾 施設の付け方・名前の直しをファイルに保存</button><span style="font-size:12px;color:var(--sub)">ほかのパソコンでは、このファイルをCSVと一緒に入れてください</span></div></details>`;
+    <p style="margin:8px 0">カイポケはCSVに出せない漢字（髙・﨑など）を「_」にします。正しい名前を入れると、画面と印刷がその名前になります。${GAS ? '<b>全員で共通です。</b>限度額表にいる人は自動で直ります。' : '<b>このパソコンが覚えます。</b>'}</p>
+    <div class="ufgrid">${rows.map(([k,x]) => `<div class="ufrow"><b>${esc(x)}</b>→<input class="nfin" data-k="${esc(k)}" value="${esc(fix[k]||af[k]||'')}" placeholder="正しい名前" title="${af[k]&&!fix[k]?'限度額表から自動':''}" style="width:120px"></div>`).join('')}</div>
+    ${GAS ? '' : `<div class="ufall" style="margin-top:10px"><button type="button" id="nfexport">💾 施設の付け方・名前の直しをファイルに保存</button><span style="font-size:12px;color:var(--sub)">ほかのパソコンでは、このファイルをCSVと一緒に入れてください</span></div>`}</details>`;
 }
 document.addEventListener('change', e => {
   const t = e.target.closest('.nfin'); if (!t) return;
