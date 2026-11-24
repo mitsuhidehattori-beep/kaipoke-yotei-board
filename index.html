@@ -747,7 +747,7 @@ const C = window.Core;
 const GAS = !!(window.google && google.script && google.script.run);
 let DEVICE = '';
 try { DEVICE = localStorage.getItem('kyb-device') || ''; if (!DEVICE){ DEVICE = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); localStorage.setItem('kyb-device', DEVICE); } } catch(e){ DEVICE = 'd' + Math.random().toString(36).slice(2); }
-const FAC_DEFAULT = ['宮地町','矢作末広','矢作町','大和町'];
+const FAC_DEFAULT = ['宮地町','矢作末広','矢作町','大和町','大和町別館','上挙母','吉原東館','吉原西館','一宮','津島','津島江西','長良東','日野東','六条','那加桐野','蘇原','大垣','大垣昼飯'];
 const PX_PER_HOUR = 130;
 const state = { filesOpen: false, files: [], model: null, fac: null, day: null, staff: '', view: 'board', kf: 'all' };
 const $ = id => document.getElementById(id);
@@ -759,6 +759,13 @@ const WD = ['日','月','火','水','木','金','土'];
 
 function facCandidates(){ return [...new Set([...FAC_DEFAULT, ...state.files.map(f => f.facility).filter(Boolean)])]; }
 
+function officeFacility(records){
+  // 事業所名に施設名が1つだけ入っていれば、その施設にする（複数なら決めない）
+  const txt = [...new Set(records.map(x => x.office))].join(' ');
+  const hits = facCandidates().filter(c => c && txt.includes(c));
+  const top = hits.filter(h => !hits.some(o => o !== h && o.includes(h)));
+  return top.length === 1 ? top[0] : null;
+}
 async function addFiles(list){
   $('err').textContent = '';
   const errs = [];
@@ -772,7 +779,7 @@ async function addFiles(list){
       const prevFac = old >= 0 ? state.files[old].facility : null;
       if (old >= 0) state.files.splice(old, 1);
       const fo = { name:file.name, size:file.size, kind:r.kind, records:r.records,
-        month: r.month, facility: r.kind === 'kaigo' ? (prevFac || C.guessFacility(file.name, facCandidates())) : null };
+        month: r.month, facility: r.kind === 'kaigo' ? (prevFac || C.guessFacility(file.name, facCandidates()) || officeFacility(r.records)) : null };
       state.files.push(fo);
       if (GAS) await gasPersist(fo);
     }catch(e){ errs.push(e.message || String(e)); }
