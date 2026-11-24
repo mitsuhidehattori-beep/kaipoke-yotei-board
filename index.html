@@ -791,6 +791,7 @@ async function addFiles(list){
       const buf = await file.arrayBuffer();
       let text;
       try { text = new TextDecoder('utf-8', {fatal:true}).decode(buf); } catch(e){ text = new TextDecoder('shift_jis').decode(buf); }
+      if (/^\uFEFF?利用者,施設\s*[\r\n]/.test(text)) { importUserFac(text); continue; }
       const r = C.readRecords(text, file.name);
       const old = state.files.findIndex(f => f.name === file.name);
       const prevFac = old >= 0 ? state.files[old].facility : null;
@@ -1372,6 +1373,7 @@ function unknownCard(m){
       <div class="ufall">全員まとめて：<input id="ufallin" list="ufaclist" placeholder="例：中野"><button type="button" id="ufallbtn">全員に付ける</button></div>
       <div class="ufgrid">${unknown.map(([k,n]) => `<div class="ufrow"><b>${esc(n)}</b><input class="ufin" data-k="${esc(k)}" list="ufaclist" placeholder="施設を入力"></div>`).join('')}</div>`;
   }
+  if (Object.keys(map).length) h += `<div class="ufall" style="margin-top:10px"><button type="button" id="ufexport">💾 施設の付け方をファイルに保存</button><span style="font-size:12px;color:var(--sub)">ほかのパソコンでは、このファイルをCSVと一緒にボードに入れると同じ施設に分かれます</span></div>`;
   if (manual.length) h += `<details class="ufman"><summary>✋ 手で施設を付けた人（${manual.length}人）— 外すときはここ</summary>${manual.map(([k,f]) => { const v = m.visits.find(x => x.userKey === k); return `<span class="chip2">${esc(v ? v.user : k)} → ${esc(f)} <a data-ufdel="${esc(k)}" title="外す">×</a></span>`; }).join('')}</details>`;
   return h + `</div>`;
 }
@@ -1388,6 +1390,19 @@ document.addEventListener('click', e => {
   }
   const d = e.target.closest('[data-ufdel]'); if (!d) return;
   const map = userFacMap(); delete map[d.dataset.ufdel]; saveUserFac(map); rebuild();
+});
+
+function importUserFac(text){
+  const rows = C.parseCsv(text).slice(1), map = userFacMap(); let n = 0;
+  for (const r of rows){ const u = (r[0]||'').replace(/[\s　★●■◆☆○◎]/g,''), f = (r[1]||'').trim(); if (u && f){ map[u] = f; n++; } }
+  saveUserFac(map); toast('施設の付け方を読み込みました（' + n + '人）');
+}
+document.addEventListener('click', e => {
+  if (e.target.id !== 'ufexport') return;
+  const map = userFacMap(), names = new Map((state.model ? state.model.visits : []).map(v => [v.userKey, v.user]));
+  const lines = ['利用者,施設', ...Object.entries(map).filter(([k,f]) => f).sort((a,b) => a[1].localeCompare(b[1],'ja') || a[0].localeCompare(b[0],'ja')).map(([k,f]) => (names.get(k) || k).replace(/,/g,'') + ',' + f.replace(/,/g,''))];
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type:'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '施設の付け方.csv'; document.body.appendChild(a); a.click(); a.remove();
 });
 if (GAS) gasBoot(); else renderBoard();
 })();
