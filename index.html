@@ -258,6 +258,18 @@ main{padding:18px 26px 40px;max-width:1500px}
 .samplebanner button{border:1px solid #d97706;background:#fff;color:#92400e;border-radius:8px;padding:3px 10px;cursor:pointer}
 .upload.compact .samplebar{display:none}
 @media print{.samplebanner,.samplebar{display:none!important}}
+.ufcard{border:1px solid #fcd34d;background:#fffbeb}
+.ufcard h3{margin:0 0 4px;font-size:16px;color:#92400e}
+.ufcard p{margin:0 0 10px;font-size:13px;color:var(--sub)}
+.ufgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px 14px}
+.ufrow{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #fde68a;border-radius:8px;padding:5px 10px}
+.ufrow b{flex:1;font-size:14px}
+.ufrow input,.ufall input{border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:110px;font-size:14px}
+.ufall{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;font-size:14px}
+.ufall button,.ufman button{border:1px solid #d97706;background:#f59e0b;color:#fff;border-radius:6px;padding:4px 12px;font-weight:700;cursor:pointer}
+.ufman{margin-top:8px;font-size:13px}.ufman summary{cursor:pointer;color:var(--sub)}
+.ufman .chip2{display:inline-flex;gap:6px;align-items:center;background:#f1f5f9;border-radius:999px;padding:2px 10px;margin:4px 4px 0 0}
+.ufman .chip2 a{cursor:pointer;color:#b91c1c;font-weight:700}
 </style>
 </head>
 <body>
@@ -446,11 +458,16 @@ main{padding:18px 26px 40px;max-width:1500px}
     return pairs;
   }
 
-  function buildModel(files) {
+  function buildModel(files, manual) {
     const seen = new Set(), userFac = new Map(), visits = [];
     for (const f of files) if (f.kind === 'kaigo') for (const r of f.records) {
       if (!userFac.has(r.userKey) || (userFac.get(r.userKey) === UNSET && f.facility)) userFac.set(r.userKey, f.facility || UNSET);
     }
+    // 介護のCSVにいない人（看護だけの人）は、手で付けた施設を使う
+    // 手で付けた施設がいちばん優先（1つの介護事業所が複数の施設を回っているとき用）
+    const man = k => (manual && manual[k]) || null;
+    for (const k of userFac.keys()) if (man(k)) userFac.set(k, man(k));
+    if (manual) for (const k in manual) if (manual[k] && !userFac.has(k)) userFac.set(k, manual[k]);
     let id = 0;
     const orders = new Map(), oseen = new Set();
     for (const f of files) if (f.kind === 'shiji') for (const r of f.records) {
@@ -472,7 +489,7 @@ main{padding:18px 26px 40px;max-width:1500px}
       const key = [r.kind, r.day, r.userKey, r.start, r.end, r.staff, r.type].join('|');
       if (seen.has(key)) continue;
       seen.add(key);
-      const facility = r.kind === 'kaigo' ? (f.facility || UNSET) : (userFac.get(r.userKey) || UNKNOWN);
+      const facility = man(r.userKey) || (r.kind === 'kaigo' ? (f.facility || UNSET) : (userFac.get(r.userKey) || UNKNOWN));
       visits.push(Object.assign({}, r, { facility, id: id++, overlap: false }));
     }
     const overlaps = findOverlaps(visits);
@@ -792,7 +809,7 @@ function rebuild(){
   showSampleBanner();
   renderFiles();
   if (!state.files.length){ state.model = null; renderBoard(); return; }
-  state.model = C.buildModel(state.files);
+  state.model = C.buildModel(state.files, userFacMap());
   renderFiles();
   const m = state.model;
   if (!m.facilities.includes(state.fac)) state.fac = m.facilities[0] || null;
@@ -883,7 +900,7 @@ function renderBoard(){
         <span class="mnote">この施設の今月のかぶり：<b>${monthPairs}件</b></span>
         <button id="printbtn">🖨 印刷</button>
       </div>
-    <div class="noprint warn" id="printnote" style="display:none;padding:8px 12px">印刷画面が出ないときは、パソコンに保存した「訪問予定ボード.html」をChrome／Edgeで開いて印刷してください（A4横）。</div></div>`;
+    <div class="noprint warn" id="printnote" style="display:none;padding:8px 12px">印刷画面が出ないときは、パソコンに保存した「訪問予定ボード.html」をChrome／Edgeで開いて印刷してください（A4横）。</div></div>` + unknownCard(m);
 
   const kaigoInFac = facVisits.some(v => v.kind === 'kaigo');
   const kaigoToday = dayVisits.some(v => v.kind === 'kaigo');
@@ -1336,6 +1353,42 @@ $('samplebtn').addEventListener('click', loadSample);
 $('sampleclear').addEventListener('click', () => { state.files = state.files.filter(f => !f.sample); rebuild(); showSampleBanner(); });
 const _addFiles = addFiles;
 addFiles = async function(list){ state.files = state.files.filter(f => !f.sample); showSampleBanner(); return _addFiles(list); };
+
+// ===== 施設不明の人に、手で施設を付ける（このパソコンのブラウザに覚える）=====
+const UF_KEY = 'kyb-userfac';
+function userFacMap(){ try { return JSON.parse(localStorage.getItem(UF_KEY) || '{}') || {}; } catch(e){ return state.ufMem || (state.ufMem = {}); } }
+function saveUserFac(map){ try { localStorage.setItem(UF_KEY, JSON.stringify(map)); } catch(e){ state.ufMem = map; } }
+function unknownCard(m){
+  const map = userFacMap();
+  const isOpen = state.fac === C.UNKNOWN || state.fac === C.UNSET;
+  const unknown = [...new Map(m.visits.filter(v => v.facility === state.fac && isOpen).map(v => [v.userKey, v.user])).entries()].sort((a,b) => a[1].localeCompare(b[1],'ja'));
+  const manual = Object.entries(map).filter(([k,f]) => f && m.visits.some(v => v.userKey === k));
+  if (!isOpen && !manual.length) return '';
+  const opts = `<datalist id="ufaclist">${facCandidates().map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`;
+  let h = `<div class="card noprint ufcard">${opts}`;
+  if (isOpen && unknown.length){
+    h += `<h3>🏠 施設が分からない利用者（${unknown.length}人）</h3>
+      <p>${state.fac === C.UNKNOWN ? '介護のCSVに名前がない人（看護だけの人など）です。' : '介護のファイルに施設が付いていない人です。1つの事業所で複数の施設を回っているときは、ここで1人ずつ施設を入れてください。'}施設を入れると、そのタブに移ります。<b>このパソコンが覚えるので、次からは自動</b>で同じ施設に入ります。</p>
+      <div class="ufall">全員まとめて：<input id="ufallin" list="ufaclist" placeholder="例：中野"><button type="button" id="ufallbtn">全員に付ける</button></div>
+      <div class="ufgrid">${unknown.map(([k,n]) => `<div class="ufrow"><b>${esc(n)}</b><input class="ufin" data-k="${esc(k)}" list="ufaclist" placeholder="施設を入力"></div>`).join('')}</div>`;
+  }
+  if (manual.length) h += `<details class="ufman"><summary>✋ 手で施設を付けた人（${manual.length}人）— 外すときはここ</summary>${manual.map(([k,f]) => { const v = m.visits.find(x => x.userKey === k); return `<span class="chip2">${esc(v ? v.user : k)} → ${esc(f)} <a data-ufdel="${esc(k)}" title="外す">×</a></span>`; }).join('')}</details>`;
+  return h + `</div>`;
+}
+document.addEventListener('change', e => {
+  const t = e.target.closest('.ufin'); if (!t || !t.value.trim()) return;
+  const map = userFacMap(); map[t.dataset.k] = t.value.trim(); saveUserFac(map); rebuild();
+});
+document.addEventListener('click', e => {
+  if (e.target.id === 'ufallbtn'){
+    const f = ($('ufallin').value || '').trim(); if (!f) return;
+    const map = userFacMap();
+    document.querySelectorAll('.ufin').forEach(i => { map[i.dataset.k] = f; });
+    saveUserFac(map); state.fac = f; rebuild(); return;
+  }
+  const d = e.target.closest('[data-ufdel]'); if (!d) return;
+  const map = userFacMap(); delete map[d.dataset.ufdel]; saveUserFac(map); rebuild();
+});
 if (GAS) gasBoot(); else renderBoard();
 })();
 </script>
