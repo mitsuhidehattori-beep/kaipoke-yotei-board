@@ -250,6 +250,14 @@ main{padding:18px 26px 40px;max-width:1500px}
   .printonly .name{font-size:10px;padding:2px 6px}
   .printonly h3{margin:0 0 4px;font-size:12px}
 }
+.samplebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.samplebtn{border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:999px;padding:7px 16px;font-weight:700;cursor:pointer;font-size:14px}
+.samplebtn:hover{background:#fef3c7}
+.samplenote{font-size:12px;color:var(--sub)}
+.samplebanner{background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:8px 14px;margin:0 0 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
+.samplebanner button{border:1px solid #d97706;background:#fff;color:#92400e;border-radius:8px;padding:3px 10px;cursor:pointer}
+.upload.compact .samplebar{display:none}
+@media print{.samplebanner,.samplebar{display:none!important}}
 </style>
 </head>
 <body>
@@ -260,9 +268,11 @@ main{padding:18px 26px 40px;max-width:1500px}
       <span style="font-size:12px">🟦 看護：各種情報出力 → スケジュール表（予定）　🟧 介護：出力対象選択 → シフト表（事業所ごと）　📋 特指示（あれば）：傷病一覧（前月・当月）</span></span>
       <span class="mini">＋ CSVを追加・入れ替え</span><span class="mini" style="font-weight:400;color:var(--sub);font-size:12px">（ここにドラッグ／クリック）</span></div>
     <input type="file" id="file" accept=".csv" multiple hidden>
+    <div class="samplebar"><button type="button" class="samplebtn" id="samplebtn">👀 見本を見る</button><span class="samplenote">架空の2施設・11月分のデータで、ボード・ケア割表・売上の見え方を試せます（CSVは不要）</span></div>
     <div class="files" id="files"></div>
     <div class="err" id="err"></div>
   </section>
+  <div id="samplebanner" class="samplebanner noprint" style="display:none">🧪 <b>見本データを表示中</b>（名前・予定はすべて架空です）<button type="button" id="sampleclear">見本を消して、自分のCSVを入れる</button></div>
   <section id="board"></section>
 </main>
 <script>
@@ -772,6 +782,7 @@ async function addFiles(list){
 }
 
 function rebuild(){
+  showSampleBanner();
   renderFiles();
   if (!state.files.length){ state.model = null; renderBoard(); return; }
   state.model = C.buildModel(state.files);
@@ -1254,6 +1265,70 @@ async function gasBoot(){
   if (state.months.length) await gasLoad(state.months[0]);
   else { renderBoard(); toast('まだ保存されたデータはありません。CSVを入れると保存されます'); }
 }
+
+// ===== 見本データ（架空）=====
+function sampleCsvs(){
+  const Y = 2026, M = 11, last = new Date(Y, M, 0).getDate();
+  const WDs = ['日','月','火','水','木','金','土'];
+  const q = v => /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v;
+  const line = a => a.map(x => q(String(x))).join(',');
+  const kH = ['日付','曜日','事業所名','利用者','業務種別','サービス内容','開始時間','終了時間','職員名１'];
+  const cH = ['日付','曜日','事業所名','利用者','業務種別','サービス内容','開始時間','終了時間','ヘルパー名'];
+  const fac = [
+    { name:'見本さくら館', office:'見本ヘルパーステーション', users:['青木 一郎','石田 花子','上野 茂','江藤 千代','大森 正男','加藤 静江'],
+      helpers:['佐藤 美咲','鈴木 健太','高橋 由美','田中 誠'], shogai:'石田 花子' },
+    { name:'見本ひまわり館', office:'見本ヘルパーステーション', users:['木村 秀子','小林 勇','斎藤 和子','清水 実','杉山 幸子'],
+      helpers:['中村 愛','野口 翔','浜田 恵'], shogai:null },
+  ];
+  const nurses = ['松本 看護師','森 看護師','山口 看護師'];
+  const iryoUsers = new Set(['上野 茂','清水 実']);
+  const kango = [line(kH)], kaigo = fac.map(() => [line(cH)]);
+  const t = m => String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0');
+  for (let d = 1; d <= last; d++){
+    const wd = WDs[new Date(Y, M-1, d).getDay()];
+    fac.forEach((f, fi) => {
+      f.users.forEach((u, ui) => {
+        const h = i => f.helpers[(ui + d + i) % f.helpers.length];
+        const type = u === f.shogai ? '障害' : '介護';
+        const svc = n => type === '障害' ? n.replace('身体介護','居宅身体') : n;
+        const off = (ui * 7) % 25;
+        // 朝・昼・夕・夜の身体介護０１、週2回の生活援助、入浴の日は身体介護１
+        kaigo[fi].push(line([d, wd, f.office, u, type, svc('身体介護０１・1-1人'), t(7*60+off), t(7*60+off+20), h(0)]));
+        kaigo[fi].push(line([d, wd, f.office, u, type, svc('身体介護０１・1-1人'), t(12*60+off), t(12*60+off+20), h(1)]));
+        kaigo[fi].push(line([d, wd, f.office, u, type, svc('身体介護０１・夜・1-1人'), t(18*60+30+off), t(18*60+50+off), h(2)]));
+        if ((d + ui) % 3 === 0) kaigo[fi].push(line([d, wd, f.office, u, type, svc('身体介護１・1-1人'), t(14*60+off), t(14*60+off+30), h(3)]));
+        if ((d + ui) % 4 === 1) kaigo[fi].push(line([d, wd, f.office, u, type, '生活援助２・1-1人', t(10*60+off), t(10*60+off+45), h(1)]));
+        // 看護：週2回（医療の人は毎日）。わざとかぶる日を少しだけ作る
+        const kd = iryoUsers.has(u) || (d + ui * 2) % 4 === 0;
+        if (kd && type !== '障害'){
+          const iryo = iryoUsers.has(u);
+          let st = [8*60+30, 9*60+15, 13*60, 15*60+15, 16*60, 16*60+45][ui] + fi*20;
+          if ((d === 5 || d === 18) && ui === 2) st = 12*60 + off + 10;  // 昼の介護とかぶる見本
+          if (d === 24 && ui === 0) st = 7*60 + off;                       // 朝の介護とかぶる見本
+          kango.push(line([d, wd, '見本訪問看護ステーション', u, iryo ? '医療保険' : '介護保険', iryo ? '訪問看護基本療養費（Ⅱ）' : '訪看Ⅰ２', t(st), t(st + 30), nurses[(ui + d + fi) % nurses.length]]));
+        }
+      });
+    });
+  }
+  return [
+    { name:'訪問看護スケジュール表_見本_202611.csv', text:kango.join('\n') },
+    ...fac.map((f, i) => ({ name:'訪問介護シフト_' + f.name + '_202611.csv', text:kaigo[i].join('\n'), facility:f.name })),
+  ];
+}
+function loadSample(){
+  state.files = state.files.filter(f => !f.sample);
+  for (const c of sampleCsvs()){
+    const r = C.readRecords(c.text, c.name);
+    state.files.push({ name:c.name, size:c.text.length, kind:r.kind, records:r.records, month:r.month, facility: r.kind === 'kaigo' ? c.facility : null, sample:true, temp:true });
+  }
+  state.fac = null; state.day = null; state.view = 'board';
+  rebuild(); showSampleBanner();
+}
+function showSampleBanner(){ $('samplebanner').style.display = state.files.some(f => f.sample) ? 'flex' : 'none'; }
+$('samplebtn').addEventListener('click', loadSample);
+$('sampleclear').addEventListener('click', () => { state.files = state.files.filter(f => !f.sample); rebuild(); showSampleBanner(); });
+const _addFiles = addFiles;
+addFiles = async function(list){ state.files = state.files.filter(f => !f.sample); showSampleBanner(); return _addFiles(list); };
 if (GAS) gasBoot(); else renderBoard();
 })();
 </script>
